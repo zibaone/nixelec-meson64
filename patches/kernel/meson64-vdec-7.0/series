@@ -1,0 +1,8 @@
+amlogic-0118-media-uapi-add-the-Amlogic-AM21B-and-AM21C-compresse.patch
+amlogic-0119-media-amlogic-add-the-video-decoder-core.patch
+amlogic-0120-media-amlogic-amvdec-add-MPEG-2-decoding.patch
+amlogic-0121-media-amlogic-amvdec-add-H.264-decoding.patch
+amlogic-0122-media-amlogic-amvdec-add-HEVC-decoding.patch
+amlogic-0123-media-amlogic-amvdec-add-VP9-decoding.patch
+amlogic-0127-media-amlogic-amvdec-export-HEVC-basic-layout-compre.patch
+amlogic-0128-TESTING-media-amlogic-amvdec-allow-4K-HEVC-on-GXBB.patch
