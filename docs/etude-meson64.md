@@ -1,9 +1,10 @@
 # Étude — `nixelec-meson64`
 
-> **Statut** : étude, rien n'est implémenté ni validé sur matériel.
-> **Date** : 2026-10-25.
+> **Statut** : étude + bring-up ; flake et module N5 initialisés, boot
+> LibreELEC mesuré, aucune image nixbian bootée.
+> **Date** : 2026-10-25 (mesures N5 : 2026-10-26).
 > **Objet** : décider entre `meson` et `meson64`, délimiter le périmètre
-> S905X / S905X4, et lister le gap entre ce que fournit `nixbian` et une
+> S905L/S905X / S905X4, et lister le gap entre ce que fournit `nixbian` et une
 > appliance réellement fonctionnelle (VPU, WiFi, audio, CEC, HDMI, GPU, boot).
 
 ---
@@ -18,9 +19,10 @@ Créer **`nixelec-meson64`**, pas `nixelec-meson`.
   SoC**, pas par carte.
 - Dans `nixbian`, `meson` est le famille **ARM32** (S805/S812). Elle ne contient
   que trois cartes (`aml-s805-mxq`, `odroidc1`, `onecloud`) et un noyau 6.12
-  armhf. Ce n'est pas la famille du S905X.
+  armhf. Ce n'est pas la famille du S905L/S905X.
 - `meson64` est la famille **ARM64** : GXBB, GXL, GXM, AXG, G12A, G12B, SM1.
-  C'est elle qui couvre le S905X, S905X2, S905X3, S905D, S912, A311D et S922X.
+  C'est elle qui couvre le S905L, S905X, S905X2, S905X3, S905D, S912, A311D
+  et S922X.
 
 Le nom public suit donc le nom de famille `nixbian` : `nixelec-meson64`.
 Un nom commercial éventuel (`nixelec-meson`) ne doit pas devenir le nom du
@@ -33,7 +35,7 @@ l'erreur.
 
 | SoC | Génération | Famille mainline | Statut dans `nixbian` | Décision pour `nixelec-meson64` |
 |---|---|---|---|---|
-| S905X / S905D / S905W | GXL | `meson64` | noyau + quelques cartes, DTB très incomplet | **référence initiale** |
+| **S905L (mesuré sur N5)** / S905X / S905D / S905W | GXL | `meson64` | noyau + quelques cartes, DTB très incomplet | **référence initiale** |
 | S905X2 | G12A | `meson64` | noyau, DTB incomplet | phase 2 |
 | S905X3 | SM1 | `meson64` | noyau, DTB incomplet | phase 2 |
 | A311D / S922X | G12B | `meson64` | noyau, DTB incomplet | phase 2 |
@@ -122,6 +124,11 @@ Conséquence : `platformDtbs`
 (`metadata/nix/families/meson64/package.nix`) ne construit que ces **deux DTBs**
 pour la famille. Les autres cartes n'ont pas de DTB dans le noyau produit.
 
+Mesure du 2026-10-26 : le DTB `amlogic/meson-gxl-s905x-p212.dtb` existe dans
+le noyau et boote la N5 S905L, mais `nixbian` ne le produit pas car
+`aml-s9xx-box` a `dtb = null`. Il faut une table carte → DTB explicite ou un
+profil N5 avec `dtb = "amlogic/meson-gxl-s905x-p212.dtb"`.
+
 ---
 
 ## 4. Gap vers une appliance fonctionnelle
@@ -180,7 +187,14 @@ Il faut donc, dans `nixbian` :
 - installer `u-boot.bin.sd.bin` et les fichiers DTB/U-Boot utiles ;
 - exposer un module d'image qui écrit les 440/442 octets + le secteur 1.
 
-Tant que ce n'est pas fait, aucune image meson64 n'est prouvée bootable.
+Tant que ce n'est pas fait, aucune image meson64 n'est prouvée bootable avec
+le schéma FIP.
+
+Sur la N5, le vendor U-Boot **2015.01** déjà présent en eMMC boote une carte
+SD via `s905_autoscript` + `uEnv.ini` + DTB p212 (mesuré le 2026-10-26 avec
+LibreELEC). C'est la méthode de bring-up à utiliser avant de packager le FIP.
+La variante `u-boot.ext` (U-Boot mainline chargé par le vendor) reste à
+tester.
 
 ### 4.3 Boîtes TV génériques
 
@@ -402,9 +416,10 @@ le driver stateless `amvdec`. Détail :
 
 ### Phase 1 — `nixelec-meson64` minimal
 
-- Carte de référence **S905X/GXL** : **Magicsee N5 confirmé S905X**. Voir
+- Carte de référence **GXL** : **Magicsee N5 mesuré S905L** (pas S905X). Voir
   [`boards/magicsee-n5.md`](boards/magicsee-n5.md) ; le nom N5 couvre aussi
   S905X2/S905X3/S905X4 selon le modèle, mais ce n'est pas le cas ici.
+  Le DTB p212 boote, mais le Bluetooth QCA9377 et le HDMI restent à qualifier.
 - D'abord qualifier la boîte : SoC exact, DTB, WiFi/BT, Ethernet, IR, boot SD.
 - Image SD bootable, cold boot, HDMI, audio HDMI, CEC, clavier/télécommande.
 - Checks : éval, formatage, présence des modules, présence du DTB dans l'image.
@@ -433,7 +448,7 @@ Lire [`decision-vpu-stateless.md`](decision-vpu-stateless.md) et
 - HEVC/VP9 ensuite, après rebase FFmpeg pour les contrôles RPS étendus ;
 - décision explicite : hardware decode supporté, ou software-only documenté.
 
-### Phase 4 — boîtes TV S905X
+### Phase 4 — boîtes TV GXL (S905L/S905X)
 
 - Profil explicite par boîte : DTB, WiFi, télécommande, layout eMMC.
 - Ne pas promettre une image unique pour toutes les boîtes.

@@ -1,7 +1,8 @@
 # Décision — VPU stateless
 
 > **Date** : 2026-10-25.
-> **Statut** : décidé, non implémenté dans une image.
+> **Statut** : décidé ; flake et module N5 préparés, aucune image nixbian
+> bootée ni décodage stateless mesuré.
 > **Périmètre** : `nixelec-meson64`, familles GXBB/GXL/GXLX/GXM/G12A/G12B/SM1.
 
 ## Décision
@@ -62,6 +63,9 @@ nix-v4l2-request
 ## Travail
 
 1. **nixbian**
+   - état 2026-10-26 : N5 mesurée **S905L/GXL**, boot SD prouvé via le vendor
+     U-Boot et le DTB p212 ; eMMC 16 Go avec 668 MiB de bootloader vendor à
+     préserver ;
    - intégrer `patches/kernel/meson64-vdec-7.0` au noyau `meson64-edge`
      (ou à une variante `meson64-vdec` pour ne pas impacter les autres
      familles) ;
@@ -70,7 +74,7 @@ nix-v4l2-request
    - vérifier le DTB : nœud `vdec` présent et actif.
 2. **nixelec-meson64**
    - créer le squelette flake ;
-   - carte de référence : Le Potato (S905X/GXL) ou Radxa Zero 2 (G12B) ;
+   - carte de référence : Magicsee N5 (S905L/GXL, mesuré) ou Radxa Zero 2 (G12B) ;
    - module image Amlogic (U-Boot `u-boot.bin.sd.bin` aux offsets 0/512) ;
    - Kodi GBM + `nix-v4l2-request`.
 3. **nix-v4l2-request**
@@ -92,7 +96,8 @@ nix-v4l2-request
 - Les firmwares `*_multi.bin` ne sont pas dans `linux-firmware` ; leur
   licence Amlogic doit être vérifiée avant redistribution.
 - HEVC dépend d'un rebase FFmpeg non trivial.
-- Aucun test matériel n'a encore été fait.
+- Aucun test matériel du VPU stateless n'a encore été fait ; la N5 a seulement
+  booté LibreELEC en stateful (mesures du 2026-10-26).
 - S4/SC2/T7 ne sont pas couverts par ce backport.
 
 ## Critère d'abandon

@@ -17,7 +17,7 @@ pas absorber de code noyau ni de logique par famille.
 
 Oui, dans **un seul `nixelec-meson64`** :
 
-- GXL : S905X (Magicsee N5), S905D/W ;
+- GXL : S905L (Magicsee N5, mesuré), S905X, S905D/W ;
 - G12A/G12B : S905X2, S922X/A311D ;
 - SM1 : S905X3, S905D3.
 

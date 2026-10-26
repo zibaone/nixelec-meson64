@@ -31,7 +31,8 @@ conflit cosmétique avec l'arbre 7.0 ; il n'apporte rien au build.
   (`meson64-edge`, config Armbian) ;
 - avec `CONFIG_VIDEO_MESON_AMVDEC=m`, le build croisé aarch64 produit
   `meson-amvdec.ko` (455 344 octets) ;
-- **aucun test matériel** n'a été fait ;
+- la N5 a booté LibreELEC 6.14.2 en **stateful** le 2026-10-26 (S905L/GXL,
+  DTB p212) ; **aucun test matériel du driver stateless** n'a été fait ;
 - le sous-ensemble S4 (`0209`/`0210`) n'est pas inclus : S4 dépend aussi de
   display/audio/GPU/OP-TEE et de la pile LibreELEC 7.3.
 
@@ -68,5 +69,6 @@ redistribution.
 
 ## Ordre d'application
 
-Utiliser `series` avec `quilt` ou comme liste ordonnée de `kernelPatches`.
-Ne pas réordonner : `0119` crée les fichiers que `0120`+ modifient.
+Utiliser `series` (ou `series.conf` dans nixbian) avec `quilt` ou comme liste
+ordonnée de `kernelPatches`/`extraPatches`. Ne pas réordonner : `0119` crée
+les fichiers que `0120`+ modifient.

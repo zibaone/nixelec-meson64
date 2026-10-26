@@ -340,7 +340,13 @@ Résultat : **le module `meson-amvdec.ko` compile** (455 344 octets), le noyau
 et les modules sont produits. Le patch `0117` (suppression du staging) n'a pas
 été appliqué : le driver staging reste compilé, donc en production il faut
 soit le supprimer, soit désactiver `CONFIG_VIDEO_MESON_VDEC` pour éviter deux
-drivers sur le même compatible. Aucun test matériel n'a été fait.
+drivers sur le même compatible. Aucun test matériel du backport n'a été fait.
+
+Depuis, la N5 a booté en LibreELEC 6.14.2 (2026-10-26). Le SoC mesuré est un
+**S905L/GXL**, pas un S905X. Le driver stateful expose `H264`, `HEVC` et
+`VP90` sur `/dev/video0` avec le DTB p212, mais aucun décodage n'a encore été
+mesuré avec `meson-amvdec` ni avec `nix-v4l2-request`. Voir
+[`boards/magicsee-n5.md`](boards/magicsee-n5.md).
 
 Conclusion : **le backport 7.0 est techniquement plus simple que prévu**.
 Les patchs sont essentiellement de nouveaux fichiers ; l'API V4L2 Request
