@@ -15,6 +15,8 @@ let
   vdecPatches = map (name: vdecPatchesDir + "/${name}") vdecPatchNames;
 in
 {
+  imports = [ ../system/minimal.nix ];
+
   options.nixelec.kernelPackage = lib.mkOption {
     type = lib.types.nullOr lib.types.package;
     default = null;
@@ -67,6 +69,10 @@ in
       boot.consoleLogLevel = lib.mkDefault 7;
       boot.kernelParams = lib.mkDefault [ "console=ttyAML0,115200n8" ];
 
+      environment.etc."sysctl.d/55-nixos-aslr-entropy.conf".source = lib.mkForce (
+        pkgs.writeText "55-nixos-aslr-entropy.conf" ""
+      );
+
       boot.initrd.includeDefaultModules = false;
       boot.initrd.availableKernelModules = lib.mkForce [
         "mmc_block"
@@ -93,14 +99,17 @@ in
 
       boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkDefault 0;
 
-      hardware.graphics.enable = lib.mkDefault true;
+      hardware.graphics.enable = lib.mkDefault false;
     }
 
     (lib.mkIf cfg.vpu.enable {
-      hardware.nixbian.extraPatches = cfg.vpu.patches;
-      hardware.nixbian.extraConfig = cfg.vpu.config;
       hardware.nixbian.kernelModules.extraKeep = [ "meson-amvdec" ];
       boot.kernelModules = [ "meson-amvdec" ];
+    })
+
+    (lib.mkIf (cfg.vpu.enable && cfg.kernelPackage == null) {
+      hardware.nixbian.extraPatches = cfg.vpu.patches;
+      hardware.nixbian.extraConfig = cfg.vpu.config;
     })
   ];
 }

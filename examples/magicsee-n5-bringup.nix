@@ -14,6 +14,11 @@
     fsType = "vfat";
   };
 
-  services.openssh.enable = true;
-  users.users.root.openssh.authorizedKeys.keys = [ ];
+  system.disableInstallerTools = true;
+  nix.enable = false;
+  systemd.services.register-nix-paths.enable = false;
+
+  services.getty.autologinUser = "root";
+  systemd.services."serial-getty@ttyAML0".enable = true;
+
 }
