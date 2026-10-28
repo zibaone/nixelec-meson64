@@ -89,12 +89,29 @@ in
         "lima"
       ];
 
+      # The modules tree is force-replaced by a pruned one (parts/modules.nix),
+      # so anything a service modprobes must be listed here or the module is
+      # absent. "zram" is required by nixbian's SD wear mitigation
+      # (zramSwap.enable, nix/parts/nixos-module.nix): without it
+      # dev-zram0.swap waits, times out every 90 s and floods the console.
       hardware.nixbian.kernelModules.extraKeep = [
+        "zram"
         "meson_ir"
         "cec-meson-ao"
         "dw-hdmi-i2s-audio"
         "snd-soc-hdmi-codec"
         "lima"
+        # L'élagage est deny-by-default et ne suit que les alias `of:` du DTB.
+        # Le QCA9377 est un périphérique SDIO sans nœud `compatible` dans le
+        # DTB p212 : sans cette entrée, tout `drivers/net/wireless/` disparaît
+        # et `modprobe ath10k_sdio` répond « Module not found » alors que le
+        # module est compilé. La fermeture embarque ath10k_core, mac80211,
+        # cfg80211, ath, rfkill et libarc4.
+        "ath10k_sdio"
+        # Même classe de défaut pour les décodeurs rc-core : ils n'ont aucun
+        # compatible OF, donc ils tombent aussi. `nec` est le protocole des
+        # télécommandes Amlogic ; les autres se décommentent au besoin.
+        "ir_nec_decoder"
       ];
 
       boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkDefault 0;

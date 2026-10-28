@@ -27,8 +27,8 @@
 
 | # | manque | état mesuré | coût | lane |
 |---|---|---|---|---|
-| B1 | **WiFi QCA9377** | SDIO `0271:0701` présent, `CONFIG_ATH10K_SDIO=m`, `modules.order` liste `ath10k_{core,pci,sdio,usb}.ko`, mais **`drivers/net/wireless/` absent de l'arbre installé** → `modprobe ath10k_sdio` : *Module not found* | 1 build de noyau (~50 min) ; si la reconstruction ne corrige pas, investigation de la phase `modules_install` | build |
-| B2 | **télécommande IR** | `rc0` actif, `input0` en `kbd`/`event0`, mais protocole `[lirc]` brut et **aucune keymap** | 30 min, après identification de la télécommande | board |
+| B1 | **WiFi QCA9377** — *cause identifiée, correctif appliqué* | l'arbre de modules subit un élagage **deny-by-default** (`prune_modules.py` : socle par préfixe + alias `of:` du DTB + liste `--keep`). `drivers/net/wireless/` n'est ni dans le socle ni dans la liste, et le QCA9377 est un périphérique **SDIO** : son alias `sdio:c*v0271d0701*` n'est jamais lu (seuls les `of:` le sont), et le DTB p212 déclare `mmc@70000/wifi@1` **sans `compatible`**. 4450 modules compilés → 1723 conservés. Le `modules.order` recopié verbatim fait croire à tort que le module est là. | `ath10k_sdio` ajouté à `extraKeep` (fermeture : ath10k_core, mac80211, cfg80211, ath, rfkill, libarc4) — reste à valider sur carte | build (fait) + carte |
+| B2 | **télécommande IR** | `rc0` actif (`meson_ir` conservé par l'élagage), mais protocole `[lirc]` brut et aucune keymap. **Deuxième effet du même élagage** : les décodeurs rc-core (`ir-nec-decoder`…) n'ont aucun compatible OF et disparaissaient aussi — `ir_nec_decoder` est maintenant dans `extraKeep` | reste : activer `nec` + une keymap correspondant à la télécommande (30 min, après identification) | carte |
 | B3 | **audio HDMI** | carte ALSA `S905X-P212`, `pcmC0D0p` présente, **rien n'a jamais été écouté** | 1 h | board |
 | B4 | **CEC** | `/dev/cec0` présent, Kodi ne l'exploite pas (télécommande du téléviseur) | 2–3 h, config Kodi + test TV | board + code |
 | B5 | **HEVC 4K** | le VPU GXL décode l'HEVC 4K, **jamais testé** ; c'est la valeur du boîtier sur une TV 4K | 1 h | board |
@@ -39,7 +39,7 @@
 | # | dette | coût | lane |
 |---|---|---|---|
 | C1 | `kodi` → `kodi-kiosk` (parité de fermeture avec sunxi64) | 30 min + build | build |
-| C2 | couche kiosque neutre : la décision est écrite, la migration fait 5 commits sur 3 dépôts | 1 j | papier + build |
+| C2 | couche kiosque neutre — **plan établi, 5 commits sur 4 dépôts** : C1 créer `nixelec-kiosk` (copie verbatim + le XML CEC qui voyage avec le module), C2 ré-export depuis `nixelec-sunxi64` (aucune rupture), C3 `HavenOS` (import + `wifi-uwe5622` conditionnel + **réinjecter les overlays `v4l2request`**, sinon −149 Mio de trim et chemins de store différents), C4 `nixelec-meson64` (supprimer le doublon en conservant `vdecFirmware`, `hardware.graphics`, `video=`, getty), C5 hôte N5 dans HavenOS — **impossible aujourd'hui** : pas d'input `nixelec-meson64` et le dépôt n'a aucun remote git | 1 j | papier + build |
 | C3 | routage MPEG-2 vers le logiciel dans Kodi (le VPU est plus lent) | 1 h de config | papier |
 | C4 | `docs/branches.md` et les statuts de README à réaligner sur les mesures | 30 min | papier |
 
@@ -47,7 +47,7 @@
 
 | # | risque | coût |
 |---|---|---|
-| D1 | HEVC `EXT_SPS_ST_RPS` absent de la série FFmpeg 6.1.6 : certains flux broadcast exigeront FFmpeg 7.x (rebase des 4 patchs + rebuild Kodi) | 1–2 j |
+| D1 | HEVC `EXT_SPS_ST_RPS` absent de la série FFmpeg 6.1.6 | **chiffré : ≈ 9 h (7–13) de rebase** vers 7.1.5, dont 4 h de vraie API HEVC (`HEVCParamSets` perd `ps.pps/sps`, `h->ref` → `cur_frame`, DPB par couche), **plus le blocage Kodi** : le pin ne contient que Kodi 21.3, construit contre `libavcodec 60` → il faudrait un Kodi 22 vendorisé. **Verdict : ne pas y aller.** Le contrôle existe déjà côté noyau ; seul l'émetteur manque côté FFmpeg, et `ShortTermRPS` de 6.1 porte déjà tous les champs nécessaires : ~60–120 lignes, **3–5 h**, sans bump ni Kodi. À déclencher seulement si un flux l'exige. |
 | D2 | plancher CPU du VPU : trafic mémoire (3,1 Mio/image, DMA non cohérent, pas d'IOMMU sur GXL), 0,83 × temps réel à 1080p | non prioritaire, gain attendu < 20 %, effort élevé |
 
 ## 3. Trois lanes, une règle chacune
@@ -82,3 +82,24 @@ carte (un seul boîtier), réécriture simultanée des mêmes fichiers.
 fichier, diff, commande reproductible. Un « c'est fait » sans preuve ne se
 vérifie pas, et un rapport de subagent est un témoignage, pas une mesure : ce
 qui touche un dépôt ou la carte se revalide ici avant d'être annoncé.
+
+## 6. Corrections apportées aux documents d'architecture
+
+L'étude de la migration a relevé trois affirmations fausses dans la décision
+`couche-kiosque-neutre.md`, corrigées sur place :
+
+1. **« Trois plateformes font déjà tourner le même profil »** — faux pour le N5 :
+   `nixelec-meson64` n'importe pas `kodi-standalone.nix` et utilise son propre
+   `modules/system/kodi.nix`. Le profil ne tourne que sur `n150-kodi` et
+   `orangepizero3-edge-kodi`.
+2. **« `kodi-gbm.nix` : aucune référence SoC hors commentaires »** — faux en
+   code : `boot.kernelModules = [ "dw-hdmi-cec" ]`, `card0-HDMI-A-1` par défaut,
+   `/dev/cec0`, watchdog calibré sur `sunxi-wdt`. La couche n'est pas neutre,
+   elle est **dw-hdmi**. Sur meson64 le pilote CEC s'appelle `cec-meson-ao` :
+   la migration doit **paramétrer** le CEC (option), pas seulement déplacer le
+   fichier.
+3. **« 111 lignes »** pour le module meson64 — 125.
+
+Conséquence sur le plan : C1 n'est pas une copie pure, c'est une copie **plus
+une mise en option du pilote CEC**. Le critère d'acceptation « grep SoC vide »
+devient donc atteignable, mais il exige ce travail.
