@@ -32,8 +32,8 @@
 
 | # | manque | preuve du défaut | coût |
 |---|---|---|---|
-| A1 | branche `feat/meson64-vdec-7.0` non poussée sur `zibaone/nixbian` | toute image construite sans `--override-input nixbian path:…` perd le VPU **en silence** ; seul un `evaluation warning` l'annonce | 1 h + CI |
-| A2 | `flake.lock` ne pointe pas cette branche | même effet pour tout consommateur du dépôt | 30 min, après A1 |
+| A1 | ~~branche non poussée~~ — **fait le 2026-10-28** | publiée sur `zibaone/nixbian` branche `feat/meson64-vdec-7.0`, commit `d83bbf83`, rejoué sur l'historique public (`public-sync`) et non poussé depuis l'arbre privé : le commit « retirer le `schedule:` mort de kernel-cache sur le privé » n'est pas publié, il ne concerne que la CI privée. Les 12 fichiers du commit vdec passent (patchs `amlogic-0118..0128`, `series.conf`, `overrides.json`, `platform_patches.json`). | fait |
+| A2 | ~~`flake.lock` sur l'ancien rev~~ — **fait le 2026-10-28** | input pointé sur `github:zibaone/nixbian/feat/meson64-vdec-7.0`, lock sur `d83bbf83`. Plus besoin de `--override-input`, l'avertissement a disparu, et l'éval du dépôt voit bien les **7** patchs amvdec. Contrôle de fidélité : les deux arbres source (`path:` local vs `git` public) sont identiques fichier par fichier ; seul `.git` diffère, ce qui explique un `drvPath` distinct sans différence de contenu. | fait |
 
 ### B. Fonctions absentes ou non validées
 
