@@ -32,11 +32,11 @@ Relevé sur la boîte d'origine, UART `ttyAML0` à 115200 8N1 :
 
 Détails utiles :
 
-- eMMC : CID `1501004d414732474305dad9bab64100`, fabricant `0x15`,
+- eMMC : CID `1501004d…` (tronqué, identifiant unique non publié), fabricant `0x15`,
   produit `MAG2GC`, date `04/2014`, boot0/boot1 et RPMB de 4 MiB chacun.
 - WiFi : firmware `WLAN.TF.1.1.1-00061-QCATFSWPZ-1 api 5` ; le fichier
   `ath10k/QCA9377/hw1.0/board-2.bin` spécifique manque et le driver utilise
-  le fallback. `wlan0`/`wlan1` partagent la MAC `94:e0:d6:02:99:xx`.
+  le fallback. `wlan0`/`wlan1` partagent la même MAC (OUI Amlogic `94:e0:d6`).
 - Bluetooth : le DTB p212 décrit un contrôleur Broadcom ; le kernel tente
   `hci_uart_bcm` et échoue (`Failed to set baudrate`). Le matériel est un
   QCA9377 et doit utiliser `btqca`/un nœud DT QCA.

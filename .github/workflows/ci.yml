@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    name: eval (flake check)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      # Pas de `nix flake update` : les lock sont partagés avec HavenOS et
+      # nixbian, les bouger casse la parité de cache.
+      - name: nix flake check --no-build
+        run: nix flake check --no-build -L
+
+  build:
+    name: build ${{ matrix.package }}
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - magicsee-n5-sd-image
+          - magicsee-n5-installer-image
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      # Les runners GitHub ont ~14 Gio libres ; une image SD + son store
+      # n'y tiennent pas. On récupère l'espace des toolchains préinstallées.
+      - name: Libérer de l'espace disque
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      # Runner arm64 natif : aucun émulation binfmt, contrairement au poste
+      # local (x86_64 + qemu-user), où un ffmpeg/noyau patché coûte des heures.
+      - name: nix build .#packages.aarch64-linux.${{ matrix.package }}
+        run: |
+          nix build ".#packages.aarch64-linux.${{ matrix.package }}" \
+            --no-link --print-build-logs
