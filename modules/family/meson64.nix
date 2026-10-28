@@ -114,6 +114,21 @@ in
         "ir_nec_decoder"
       ];
 
+      # La carte son (`gx-sound-card`) crée un PCM par dai-link du DT, mais
+      # seulement pour les liens dont le codec est déjà enregistré au moment de
+      # sa sonde. La carte et le codec HDMI sont deux modules indépendants :
+      # sans ordre imposé, la carte se sonde la première, le lien HDMI n'est
+      # jamais exposé et il ne reste que `fe.dai-link-0` (l'ACODEC analogique).
+      # Mesuré le 2026-10-28 : PCM du HDMI absent, tous les contrôles du mixer
+      # en `ACODEC*`, aucun son sur la TV. `softdep` force le codec avant.
+      # Priorité normale, pas `mkDefault` : un autre module définit cette
+      # option à priorité 100 avec une chaîne vide, et une définition plus
+      # faible est alors écrasée en silence (vérifié : mkDefault rendait "").
+      # À priorité égale, les chaînes se concatènent.
+      boot.extraModprobeConfig = ''
+        softdep snd_soc_meson_gx_sound_card pre: snd_soc_hdmi_codec snd_soc_meson_aiu
+      '';
+
       boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkDefault 0;
 
       hardware.graphics.enable = lib.mkDefault false;
