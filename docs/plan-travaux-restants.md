@@ -13,6 +13,16 @@
   `/dev/video0` tenu pendant la lecture, zéro erreur.
 - HDMI : EDID 256 octets, détection réelle (le câble était la cause du silence).
 - Réseau : lien direct et SSH de qualification (`lab-ssh`, non versionné).
+- **WiFi QCA9377 complet** (2026-10-28) : `ath10k_sdio` chargé, firmware
+  `WLAN.TF.1.1.1-00061-QCATFSWPZ-1`, association 2,4 GHz, **IPv4 par DHCP**
+  (`192.168.1.21/24`, `proto dhcp`), IPv6 SLAAC, ping passerelle 0 % de perte.
+- **Débit WiFi mesuré** (hôte lui aussi en WiFi, donc plancher) : 38,6 Mbps en
+  réception, 14,9 Mbps en émission. Suffisant pour du 1080p H.264.
+- **Audio HDMI jusqu'à l'ALSA** : lecture d'un H.264/AAC 720p dans Kodi, PCM
+  `state: RUNNING` continu, `S24_LE`, 2 canaux, 48 kHz. Reste l'oreille.
+- **CEC** : `meson-ao-cec` obtient l'**adresse physique `2.0.0.0`** de la TV
+  (entrée HDMI 2) et une adresse logique — la poignée de main CEC fonctionne.
+  Reste l'usage fonctionnel (télécommande du téléviseur).
 
 ## 2. Manques
 
@@ -27,10 +37,10 @@
 
 | # | manque | état mesuré | coût | lane |
 |---|---|---|---|---|
-| B1 | **WiFi QCA9377** — *cause identifiée, correctif appliqué* | l'arbre de modules subit un élagage **deny-by-default** (`prune_modules.py` : socle par préfixe + alias `of:` du DTB + liste `--keep`). `drivers/net/wireless/` n'est ni dans le socle ni dans la liste, et le QCA9377 est un périphérique **SDIO** : son alias `sdio:c*v0271d0701*` n'est jamais lu (seuls les `of:` le sont), et le DTB p212 déclare `mmc@70000/wifi@1` **sans `compatible`**. 4450 modules compilés → 1723 conservés. Le `modules.order` recopié verbatim fait croire à tort que le module est là. | `ath10k_sdio` ajouté à `extraKeep` (fermeture : ath10k_core, mac80211, cfg80211, ath, rfkill, libarc4). **Validé le 2026-10-28** : `wlan0` apparaît, firmware `WLAN.TF.1.1.1-00061-QCATFSWPZ-1` chargé, `rfkill` voit `phy0`. Reste : l'image n'embarque **aucun supplicant** (`wpa_supplicant`/`iw` ajoutés depuis). Le message `failed to fetch board data … board-2.bin` suivi de `board_file api 1 crc32 544289f7` est le comportement **normal** de ce chip en mainline : `board-2.bin` ne contient que 37 entrées `bus=pci` et zéro `bus=sdio`, et le fichier d'`armbian/firmware` fait exactement la même taille (304 308 o) — il n'apporte rien. Le repli sur `board.bin` fonctionne (confirmé sur la liste ath10k par l'auteur LibreELEC). Un board file propre à la carte ne peut venir que du firmware vendor Android. | build (fait) + carte |
+| B1 | **WiFi QCA9377** — *cause identifiée, correctif appliqué* | l'arbre de modules subit un élagage **deny-by-default** (`prune_modules.py` : socle par préfixe + alias `of:` du DTB + liste `--keep`). `drivers/net/wireless/` n'est ni dans le socle ni dans la liste, et le QCA9377 est un périphérique **SDIO** : son alias `sdio:c*v0271d0701*` n'est jamais lu (seuls les `of:` le sont), et le DTB p212 déclare `mmc@70000/wifi@1` **sans `compatible`**. 4450 modules compilés → 1723 conservés. Le `modules.order` recopié verbatim fait croire à tort que le module est là. | `ath10k_sdio` ajouté à `extraKeep` (fermeture : ath10k_core, mac80211, cfg80211, ath, rfkill, libarc4). **Validé le 2026-10-28** : `wlan0` apparaît, firmware `WLAN.TF.1.1.1-00061-QCATFSWPZ-1` chargé, `rfkill` voit `phy0`. Reste : l'image n'embarque **aucun supplicant** (`wpa_supplicant`/`iw` ajoutés depuis). Le message `failed to fetch board data … board-2.bin` suivi de `board_file api 1 crc32 544289f7` est le comportement **normal** de ce chip en mainline : `board-2.bin` ne contient que 37 entrées `bus=pci` et zéro `bus=sdio`, et le fichier d'`armbian/firmware` fait exactement la même taille (304 308 o) — il n'apporte rien. Le repli sur `board.bin` fonctionne (confirmé sur la liste ath10k par l'auteur LibreELEC). Un board file propre à la carte ne peut venir que du firmware vendor Android. | **validé sur carte** : association, IPv4 DHCP, IPv6, débit 38,6/14,9 Mbps |
 | B2 | **télécommande IR** | `rc0` actif (`meson_ir` conservé par l'élagage), mais protocole `[lirc]` brut et aucune keymap. **Deuxième effet du même élagage** : les décodeurs rc-core (`ir-nec-decoder`…) n'ont aucun compatible OF et disparaissaient aussi — `ir_nec_decoder` est maintenant dans `extraKeep` | reste : activer `nec` + une keymap correspondant à la télécommande (30 min, après identification) | carte |
-| B3 | **audio HDMI** | carte ALSA `S905X-P212`, `pcmC0D0p` présente, **rien n'a jamais été écouté** | 1 h | board |
-| B4 | **CEC** | `/dev/cec0` présent, Kodi ne l'exploite pas (télécommande du téléviseur) | 2–3 h, config Kodi + test TV | board + code |
+| B3 | **audio HDMI** — *chaîne logicielle validée* | carte ALSA `S905X-P212`, un PCM de lecture. Mesuré le 2026-10-28 : lecture d'un H.264/AAC dans Kodi, `/proc/asound/card0/pcm0p/sub0/status` reste `RUNNING` pendant toute la lecture, `format: S24_LE`, `channels: 2`, `rate: 48000`. Toute la chaîne userspace → ALSA → I2S HDMI est donc prouvée ; **seule l'oreille manque** | 2 min : confirmer qu'on entend le son | carte |
+| B4 | **CEC** — *lien validé, usage fonctionnel non* | `cec-ctl -S` le 2026-10-28 : pilote `meson-ao-cec` 7.0.14, capacités `Logical Addresses / Transmit / Passthrough / Connector Info`, **adresse physique `2.0.0.0`** obtenue de la TV, adresse logique `0x2`. La poignée de main CEC fonctionne ; il reste à faire piloter Kodi par la télécommande du téléviseur | 2–3 h, config Kodi + test TV | board + code |
 | B5 | **HEVC 4K** | le VPU GXL décode l'HEVC 4K, **jamais testé** ; c'est la valeur du boîtier sur une TV 4K | 1 h | board |
 | B6 | **suspend / thermique** | jamais testés ; GXL throttlé au-delà de ~80 °C | 2 h | board |
 
