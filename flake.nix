@@ -7,7 +7,10 @@
     flake-parts.url = "github:hercules-ci/flake-parts";
 
     nixbian = {
-      url = "github:zibaone/nixbian";
+      # Branche de travail : elle porte la série meson-amvdec (patchs
+      # amlogic-0118..0128). Le lock fige le rev, mais pointer la branche rend
+      # la provenance explicite ; un `nix flake update` sur ce flake la suit.
+      url = "github:zibaone/nixbian/feat/meson64-vdec-7.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 

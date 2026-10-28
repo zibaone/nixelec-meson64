@@ -45,15 +45,16 @@
         "systems": "systems"
       },
       "locked": {
-        "lastModified": 1792826741,
-        "narHash": "sha256-iVpaBlcO3hqo2cG/GFYDBm/0jDVVpN88uBye6rnPHqs=",
+        "lastModified": 1793226954,
+        "narHash": "sha256-E3GV+6UcnHc7sRrTY3Hr4WdQZ5KbvWbxM3863DOkqck=",
         "owner": "zibaone",
         "repo": "nixbian",
-        "rev": "038d30923ae049a6c3e09ecae96e121ee8e5109a",
+        "rev": "d83bbf836bb76f940a80067cd3c4eccd865b6f94",
         "type": "github"
       },
       "original": {
         "owner": "zibaone",
+        "ref": "feat/meson64-vdec-7.0",
         "repo": "nixbian",
         "type": "github"
       }
@@ -134,11 +135,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1792780576,
-        "narHash": "sha256-gkdOgOYj8cn8Wf7tppA3TLYCxqWW5jBD7JMsin4jkig=",
+        "lastModified": 1793197721,
+        "narHash": "sha256-sgiXV6DME4F6PFndsmPKbOj8nvGmDi6dXbDE9GRo0Ro=",
         "owner": "zibaone",
         "repo": "nix-v4l2-request",
-        "rev": "885d9a0bc8249bf9b635b64e9acf6e329817016b",
+        "rev": "0d26fb96bf04dab1c2424ec9c9e13e57281e5710",
         "type": "github"
       },
       "original": {
