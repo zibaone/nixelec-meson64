@@ -147,3 +147,34 @@ stateful, lui, fonctionne : `h264_v4l2m2m` a décodé 300 images 1080p30 en
 Conséquence : le stateless reste **non mesurable** en l'état, et l'accélération
 matérielle dans Kodi passe par le chemin stateful + un portage de
 `v4l2-drmprime` (qui cible FFmpeg 4.4 : 17 hunks sur 30 échouent sur 6.1.6).
+
+## Mise à jour du 2026-10-30 : le stateless décode
+
+L'échec ci-dessus venait d'un FFmpeg **sans** le patch `0002` (capture NV12M) :
+la flotte épinglait `885d9a0b`, antérieure à `a7710c1`. Avec la révision
+`0d26fb96` (0002 + 0003 + 0004), le hwaccel s'initialise et décode.
+
+Banc de mesure sur la N5, `test1080.mp4` (1080p30, 10 s, 300 images), noyau
+7.0.14, `meson-amvdec` :
+
+| chemin | décodage | utime | stime | rtime |
+|---|---|---|---|---|
+| stateless `v4l2-request` (ce dépôt) | 300 images, 0 erreur | 0,36 s | 0,53 s | 3,8 s |
+| stateful `h264_v4l2m2m` | 300 images, 0 erreur | 0,12 s | 8,08 s | 8,7 s |
+| logiciel | 300 images | 18,40 s | 0,81 s | 9,0 s |
+
+Kodi suit : `CDVDVideoCodecDRMPRIME::Open - using decoder H.264` et **zéro**
+`send packet failed` (contre ~250/minute avant le patch), là où le prédécesseur
+échouait dès l'initialisation (`select capture format failed` → « No V4L2 media
+device found for S264 »).
+
+Deux conséquences :
+
+- le critère d'abandon posé plus haut est **levé** : le stateless est mesuré,
+  bit-exact sur ce banc (0 erreur de décodage), et c'est le chemin le plus
+  économe en CPU total (0,89 s contre 8,2 s en stateful, 19,2 s en logiciel) ;
+- la cause de l'échec n'était pas le dialecte des contrôles (`meson-amvdec` vs
+  série `v4l2-request`) mais **le format de capture**, déjà traité par 0002.
+
+Reste à mesurer avant de basculer le défaut sur `stateless` : HEVC (0004 aligne
+`MAX_SLICES`), le 10 bits, et la stabilité sur une lecture longue.
