@@ -105,3 +105,45 @@ nix-v4l2-request
 Si H.264 ne produit pas un décodage bit-exact avec `V4L2REQUEST` sur une carte
 de référence après le backport, on revient au chemin stateful
 `v4l2_m2m` + `v4l2-drmprime` et on documente la limite.
+
+## Mesure du 2026-10-29 : le stateless ne peut pas fonctionner tel quel
+
+Premier essai réel du chemin stateless sur la N5 (S905L, noyau 7.0.14,
+`meson-amvdec` chargé, `/dev/media0` + `/dev/video0` présents). Le hwaccel
+n'arrive pas à s'initialiser :
+
+```
+ffmpeg -hwaccel drm -hwaccel_output_format drm_prime -c:v h264 -i test1080.mp4 -f null -
+[h264] ff_v4l2_request_init: ctx=0xffffa8050700 ...
+[h264] v4l2_request_probe_media_device: path=/dev/media0 driver=meson-amvdec
+[h264] v4l2_request_probe_video_device: path=/dev/video0 capabilities=69222400
+[h264] v4l2_request_probe_video_device: select capture format failed
+[h264] No V4L2 media device found for S264
+```
+
+La cause est un format, pas un contrat :
+
+```
+v4l2-ctl -d /dev/video0 --list-formats      # capture
+  [0]: 'NM12' (Y/UV 4:2:0 (N-C))            # V4L2_PIX_FMT_NV12M, 2 plans
+v4l2-ctl -d /dev/video0 --list-formats-out  # sortie
+  [0]: 'S264' (H.264 Parsed Slice Data, compressed)
+```
+
+Le driver n'expose **que** `NV12M` en capture (`--set-fmt-video pixelformat=NV12`
+→ « The pixelformat 'NV12' is invalid »). Or `v4l2_request_capture_pixelformats`
+dans FFmpeg ne contient pas `V4L2_PIX_FMT_NV12M` : elle liste NV12,
+SUNXI_TILED_NV12, NV15, NV16, NV20, P010 et les AFBC. Le jeu de patches
+LibreELEC 12 ne le contient pas davantage (`grep NV12M` → 0 occurrence), et
+l'export DRM est écrit pour **un seul** dma-buf (`desc->nb_objects = 1`,
+chroma déduite par offset dans le même objet).
+
+Autrement dit : apparier `meson-amvdec` avec la série `v4l2-request` demande une
+fonction que personne n'a écrite — export multi-plan (un `VIDIOC_EXPBUF` par
+plan, un `AVDRMObjectDescriptor` par plan, `layer->nb_planes = 2`). Le chemin
+stateful, lui, fonctionne : `h264_v4l2m2m` a décodé 300 images 1080p30 en
+0,12 s de temps utilisateur (contre 18,4 s en logiciel).
+
+Conséquence : le stateless reste **non mesurable** en l'état, et l'accélération
+matérielle dans Kodi passe par le chemin stateful + un portage de
+`v4l2-drmprime` (qui cible FFmpeg 4.4 : 17 hunks sur 30 échouent sur 6.1.6).
