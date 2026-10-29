@@ -178,3 +178,28 @@ Deux conséquences :
 
 Reste à mesurer avant de basculer le défaut sur `stateless` : HEVC (0004 aligne
 `MAX_SLICES`), le 10 bits, et la stabilité sur une lecture longue.
+
+### Banc complet (2026-10-30, N5, appareil au repos)
+
+300 images de 1080p30, `ffmpeg -hwaccel drm -hwaccel_output_format drm_prime` :
+
+| contenu | décodage | utime | stime | décodage |
+|---|---|---|---|---|
+| H.264 8 bits | matériel | 0,46 s | 0,70 s | 0 erreur |
+| HEVC 8 bits | matériel | 0,48 s | 0,70 s | 0 erreur |
+| HEVC 10 bits | matériel | 0,41 s | 0,57 s | 0 erreur |
+| H.264 8 bits | logiciel | 18,40 s | 0,81 s | — |
+| HEVC 8 bits | logiciel | 46,50 s | 1,83 s | — |
+
+Lecture longue : 60 s de H.264 1080p30 en 3,5 s + 3,1 s de CPU, zéro erreur,
+`dmesg` silencieux. Kodi : `CDVDVideoCodecDRMPRIME` ouvre H.264 **et** HEVC sans
+un seul `send packet failed`.
+
+Deux limites à connaître, mesurées, qui ne sont pas des régressions :
+
+- **H.264 10 bits** : le driver n'expose que `S264`, sans variante 10 bits → le
+  hwaccel refuse, repli logiciel ;
+- **un client à la fois** : Kodi en service tient `/dev/video0` (EBUSY pour tout
+  autre client), et un échec d'initialisation laisse le décodeur occupé jusqu'au
+  redémarrage de la carte. Mesurer en ligne de commande exige Kodi arrêté, et
+  redémarrer après tout échec.
