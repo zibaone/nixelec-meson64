@@ -122,10 +122,6 @@ in
         );
 
         hardware.nixbian.kernelModules.prune = lib.mkForce false;
-        # `meson-vdec` (stateful, staging) remplace `meson-amvdec` : il doit être
-        # conservé par l'élagage, sinon /dev/video* n'existe plus.
-        hardware.nixbian.kernelModules.extraKeep = [ config.nixelec.vpu.kernelModule ];
-        boot.kernelModules = [ config.nixelec.vpu.kernelModule ];
 
         system.modulesTree =
           let

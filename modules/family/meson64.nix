@@ -217,6 +217,9 @@ in
         cecDriver = lib.mkDefault "cec-meson-ao";
         hdmiConnector = lib.mkDefault "HDMI-A-1";
         videoMode = lib.mkDefault "1920x1080@60";
+        # Kodi's DRMPRIME decoder speaks the *stateless* API only. On the
+        # stateful driver it opens the decoder then fails every packet.
+        kodiDrmPrime = lib.mkDefault (cfg.vpu.mode == "stateless");
         watchdog = {
           enable = lib.mkDefault false;
           maxTimeout = lib.mkDefault null;
@@ -225,8 +228,8 @@ in
     })
 
     (lib.mkIf cfg.vpu.enable {
-      hardware.nixbian.kernelModules.extraKeep = [ "meson-amvdec" ];
-      boot.kernelModules = [ "meson-amvdec" ];
+      hardware.nixbian.kernelModules.extraKeep = [ cfg.vpu.kernelModule ];
+      boot.kernelModules = [ cfg.vpu.kernelModule ];
     })
 
     (lib.mkIf (cfg.vpu.enable && cfg.kernelPackage == null) {
