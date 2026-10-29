@@ -54,21 +54,6 @@ in
   flake.packages.aarch64-linux.magicsee-n5-decode-image =
     self.nixosConfigurations.magicsee-n5-decode.config.system.build.sdImage;
 
-  # Kiosque : mêmes fichiers de boot que le bring-up, plus Kodi en DRM direct.
-  # Aucun compositeur — voir l'en-tête de modules/system/kodi.nix.
-  flake.nixosConfigurations.magicsee-n5-kodi = inputs.nixpkgs.lib.nixosSystem {
-    system = "aarch64-linux";
-    modules = [
-      self.nixosModules.magicsee-n5
-      self.nixosModules.kodi
-      self.nixosModules.sd-image
-      ../examples/magicsee-n5-bringup.nix
-    ];
-  };
-
-  flake.packages.aarch64-linux.magicsee-n5-kodi-image =
-    self.nixosConfigurations.magicsee-n5-kodi.config.system.build.sdImage;
-
   flake.packages.aarch64-linux.magicsee-n5-installer-image =
     self.nixosConfigurations.magicsee-n5-installer.config.system.build.sdImage;
 }

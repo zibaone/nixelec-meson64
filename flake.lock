@@ -59,26 +59,6 @@
         "type": "github"
       }
     },
-    "nixelec-kiosk": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1793275219,
-        "narHash": "sha256-YRKRb1r1Z4E02BeiJ7jFGpBvfAZS4EbecM3nVnQyd/o=",
-        "owner": "zibaone",
-        "repo": "nixelec-kiosk",
-        "rev": "1af573da910955e98e1e8b4b4647e7c44ddf1127",
-        "type": "github"
-      },
-      "original": {
-        "owner": "zibaone",
-        "repo": "nixelec-kiosk",
-        "type": "github"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1792503283,
@@ -129,7 +109,6 @@
       "inputs": {
         "flake-parts": "flake-parts",
         "nixbian": "nixbian",
-        "nixelec-kiosk": "nixelec-kiosk",
         "nixpkgs": "nixpkgs",
         "v4l2request": "v4l2request"
       }

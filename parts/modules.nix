@@ -76,56 +76,6 @@ in
         };
       };
 
-    # Kiosque Kodi : la couche neutre `nixelec-kiosk` porte le module ; ce
-    # réexport garde `nixosModules.kodi` et fait le câblage faits → options,
-    # puisque ce fichier est le seul de la couche à voir les deux étages. La
-    # couche carte, elle, ne pose aucune option `nixelec.kiosk.*`.
-    kodi =
-      {
-        config,
-        lib,
-        pkgs,
-        ...
-      }:
-      {
-        imports = [ inputs.nixelec-kiosk.nixosModules.kodi-gbm ];
-
-        nixpkgs.overlays = [ inputs.v4l2request.overlays.default ];
-
-        # Le paquet est un choix de plateforme : la couche neutre n'en a aucun
-        # par défaut, un `pkgs.kodi-gbm` implicite décoderait en CPU sans le
-        # dire. Ici c'est le kodi de nix-v4l2-request (DRMPRIME + ffmpeg patché).
-        nixelec.platform.kodiPackage = lib.mkDefault (
-          inputs.v4l2request.packages.${pkgs.stdenv.hostPlatform.system}.kodi
-        );
-
-        nixelec.kiosk = {
-          enable = true;
-          package = lib.mkDefault config.nixelec.platform.kodiPackage;
-          cec = {
-            driver = lib.mkDefault config.nixelec.platform.cecDriver;
-            connector = lib.mkDefault (
-              if config.nixelec.platform.hdmiConnector == null then
-                null
-              else
-                "card0-${config.nixelec.platform.hdmiConnector}"
-            );
-          };
-          watchdog.enable = lib.mkDefault config.nixelec.platform.watchdog.enable;
-        };
-
-        # Kodi prend le DRM directement : personne ne doit lui disputer le VT.
-        systemd.services."getty@tty1".enable = lib.mkForce false;
-
-        # La famille laisse `graphics` à false pour les images nues ; le kiosque
-        # a besoin d'EGL/GBM. mkForce, sans quoi deux `mkDefault` de valeurs
-        # opposées à la même priorité échouent à l'éval.
-        hardware.graphics.enable = lib.mkForce true;
-
-        # Le paquet dans le PATH : diagnostic sur la carte, sans shell dédié.
-        environment.systemPackages = [ config.nixelec.kiosk.package ];
-      };
-
     # WiFi QCA9377 (ath10k_sdio) : pilote, firmware, wpa_supplicant.
     wifi-ath10k = ../modules/services/wifi-ath10k.nix;
 
