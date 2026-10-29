@@ -44,8 +44,9 @@
 | B2 | **télécommande IR** | `rc0` actif (`meson_ir` conservé par l'élagage), mais protocole `[lirc]` brut et aucune keymap. **Deuxième effet du même élagage** : les décodeurs rc-core (`ir-nec-decoder`…) n'ont aucun compatible OF et disparaissaient aussi — `ir_nec_decoder` est maintenant dans `extraKeep` | reste : activer `nec` + une keymap correspondant à la télécommande (30 min, après identification) | carte |
 | B3 | **audio HDMI — résolu** (2026-10-29) | Ce n'était ni un module manquant ni un ordre de sonde : `gx-card` ne crée un PCM que pour les DAI dont le nom contient « FIFO », donc **un seul PCM est le comportement normal** ; le HDMI est un back-end (`dai-link-2`). Tout était en place — `eld#2` identifie la TV (SAMSUNG, 6 SAD), `i2s-hifi` est enregistré, les widgets `AIU HDMI I2S IN` / `HDMITX I2S Playback` / `HDMITX TX` sont `On` pendant la lecture, PCM `RUNNING` en `S24_LE` 48 kHz. Le flux était détourné par `AIU HDMI CTRL SRC` (numid 14), à `DISABLED` ; `PCM` (1) ne donne rien, **`I2S` (2) donne le son**. Le `softdep` tenté la veille n'avait aucun effet et a été retiré. | corrigé par `systemd.services.meson-hdmi-audio-route` dans `modules/family/meson64.nix` ; **validé le 2026-10-29** après démarrage à froid : service `success`, sélecteur à `I2S` sans intervention, 440 Hz entendu | — |
 | B4 | **CEC** — *lien validé, usage fonctionnel non* | `cec-ctl -S` le 2026-10-28 : pilote `meson-ao-cec` 7.0.14, capacités `Logical Addresses / Transmit / Passthrough / Connector Info`, **adresse physique `2.0.0.0`** obtenue de la TV, adresse logique `0x2`. La poignée de main CEC fonctionne ; il reste à faire piloter Kodi par la télécommande du téléviseur | 2–3 h, config Kodi + test TV | board + code |
-| B5 | **HEVC 4K** | le VPU GXL décode l'HEVC 4K, **jamais testé** ; c'est la valeur du boîtier sur une TV 4K | 1 h | board |
+| B5 | **HEVC 4K — résolu** (2026-10-29) | 3840×2160 HEVC décodé par le VPU, **bit-exact** (`88cd8f3c…` identique au logiciel sur 10 images) et lu sans saccade dans Kodi (`CDVDVideoCodecDRMPRIME`, GUI 1080p60, 0,55 cœur de CPU sur 15 s). **Piège de mesure** : `-benchmark` en CLI donne 8,4 i/s, non pas à cause du VPU mais parce que la pipeline ramène chaque image 4K en mémoire système (~3 Go de copies) ; le rendu Kodi est en zéro-copie. La CMA de 256 Mio suffit (`CmaFree` encore 251 Mio après décodage). | — | — |
 | B6 | **suspend / thermique** | jamais testés ; GXL throttlé au-delà de ~80 °C | 2 h | board |
+| B7 | **kiosque en 576p si la TV est en veille au boot** | `video=HDMI-A-1:1920x1080@60` ne s'applique que si le connecteur est détecté **au démarrage** : TV en standby ⇒ pas d'EDID ⇒ repli `720x576@50`, et **ça ne se rattrape pas à chaud** (re-détection par `echo detect` sur `card0-HDMI-A-1/status` puis redémarrage de Kodi : toujours 576p ; seul un reboot TV allumée restaure le 1080p). Constaté le 2026-10-29 pendant le test 4K. | à corriger : re-probe du connecteur sur hotplug (règle udev + redémarrage de Kodi) ou ne plus forcer le mode et laisser Kodi choisir | board + code |
 
 ### C. Dettes de code
 
@@ -74,13 +75,13 @@
 ## 4. Vagues
 
 **Vague 1 — parallèle, sans build ni carte**
-A1 (pousser la branche + CI) · C4 (realigner la doc) · B2 (préparer la keymap, en attente de l'identification de la télécommande) · D1 (étude d'impact du rebase FFmpeg 7.x, sans compiler).
+B2 (préparer la keymap, en attente de l'identification de la télécommande) · D1 (étude d'impact du rebase FFmpeg 7.x, sans compiler) · B7 (le correctif du mode d'affichage se conçoit sans le boîtier).
 
-**Vague 2 — un build + des tests carte, en parallèle l'un de l'autre**
-B1 (build noyau, lane build) **pendant** B5 (HEVC 4K, lane board). Les deux lanes ne se disputent rien : le build tourne en qemu, les tests sur le boîtier.
-
-**Vague 3 — après validation des précédents**
+**Vague 2 — après validation des précédents**
 C2 (migration de la couche kiosque : 3 dépôts, commits séparés) · B4 (CEC) · C1/C3 (finitions).
+
+**Puis, sur le boîtier et avec l'image finale**
+B6 (thermique ~40 min ; suspend : à clore par une mesure négative assumée) · installation eMMC.
 
 ## 5. Découpage en subagents
 
