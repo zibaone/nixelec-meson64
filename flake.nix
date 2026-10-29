@@ -18,6 +18,13 @@
       url = "github:zibaone/nix-v4l2-request";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Couche kiosque neutre : service Kodi GBM, CEC, watchdog, sans nom de SoC.
+    # Réexportée ici sous `nixosModules.kodi`, avec le câblage des faits GXL.
+    nixelec-kiosk = {
+      url = "github:zibaone/nixelec-kiosk";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =

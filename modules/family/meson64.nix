@@ -1,6 +1,7 @@
 {
   config,
   lib,
+  options,
   pkgs,
   ...
 }:
@@ -15,7 +16,10 @@ let
   vdecPatches = map (name: vdecPatchesDir + "/${name}") vdecPatchNames;
 in
 {
-  imports = [ ../system/minimal.nix ];
+  imports = [
+    ../system/minimal.nix
+    ../system/vdec-firmware.nix
+  ];
 
   options.nixelec.kernelPackage = lib.mkOption {
     type = lib.types.nullOr lib.types.package;
@@ -150,7 +154,32 @@ in
       boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkDefault 0;
 
       hardware.graphics.enable = lib.mkDefault false;
+
+      # Microcodes du VPU Amlogic : côté carte, comme le mode vidéo. Sans eux,
+      # DRMPRIME sélectionne bien le VPU mais chaque paquet est rejeté côté
+      # application (`Invalid data found when processing input`).
+      nixelec.vdecFirmware.enable = lib.mkDefault true;
     }
+
+    # Faits GXL pour la couche kiosque (`nixelec-kiosk`), publiés uniquement
+    # quand elle est importée : `nixelec.platform` n'existe pas sur une image
+    # nue. Ce sont des FAITS : la carte ne pose jamais `nixelec.kiosk.*`.
+    #
+    # Mesuré sur le Magicsee N5 : CEC du bloc AO (`cec-meson-ao`), connecteur
+    # `HDMI-A-1`, mode 1080p60 en préférence (jamais `D`). Aucun watchdog
+    # matériel prouvé sur cette carte : `enable = false` est un fait négatif,
+    # pas un oubli — un watchdog non prouvé ne protège de rien.
+    (lib.optionalAttrs (options ? nixelec.platform) {
+      nixelec.platform = {
+        cecDriver = lib.mkDefault "cec-meson-ao";
+        hdmiConnector = lib.mkDefault "HDMI-A-1";
+        videoMode = lib.mkDefault "1920x1080@60";
+        watchdog = {
+          enable = lib.mkDefault false;
+          maxTimeout = lib.mkDefault null;
+        };
+      };
+    })
 
     (lib.mkIf cfg.vpu.enable {
       hardware.nixbian.kernelModules.extraKeep = [ "meson-amvdec" ];

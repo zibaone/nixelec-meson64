@@ -18,5 +18,9 @@
   boot.kernelParams = lib.mkForce [
     "console=ttyAML0,115200n8"
     "cma=256M"
+    # Sortie HDMI : mode préféré, jamais forcé (`D`). L'EDID d'un téléviseur
+    # annonce du 4K que GXL ne compose pas ; panfrost/lima n'y sont pour rien.
+    # Côté carte, parce que c'est un fait du boîtier (et non du lecteur).
+    "video=HDMI-A-1:1920x1080@60"
   ];
 }
