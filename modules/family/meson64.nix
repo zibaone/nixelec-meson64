@@ -32,7 +32,36 @@ in
   };
 
   options.nixelec.vpu = {
-    enable = lib.mkEnableOption "Amlogic meson-amvdec stateless VPU";
+    enable = lib.mkEnableOption "Amlogic meson VPU";
+
+    mode = lib.mkOption {
+      type = lib.types.enum [
+        "stateful"
+        "stateless"
+      ];
+      default = "stateful";
+      description = ''
+        Which kernel driver claims the VPU.
+
+        `stateful` builds the staging `meson-vdec` (V4L2 M2M, decoded by
+        `h264_v4l2m2m` in stock FFmpeg). `stateless` builds `meson-amvdec`
+        (LibreELEC backport, V4L2 Request API) consumed by the patched FFmpeg of
+        `nix-v4l2-request`.
+
+        Both drivers claim the same compatible, so exactly one is built. The
+        default is `stateful` because it is the path that has actually decoded
+        on the N5; `stateless` is kept selectable to measure it without losing
+        the working configuration — the two systems are separate hosts in the
+        fleet, so switching is a deploy plus a reboot, not a rewrite.
+      '';
+    };
+
+    kernelModule = lib.mkOption {
+      type = lib.types.str;
+      readOnly = true;
+      default = if cfg.vpu.mode == "stateful" then "meson-vdec" else "meson-amvdec";
+      description = "Kernel module to load for the selected mode.";
+    };
 
     patches = lib.mkOption {
       type = lib.types.listOf lib.types.path;
@@ -42,26 +71,32 @@ in
 
     config = lib.mkOption {
       type = lib.types.str;
-      # Chemin **stateful** (`meson-vdec`, V4L2 M2M) plutôt que le stateless
-      # `meson-amvdec` : sur la N5 mesurée le 2026-10-29, le stateless ouvre le
-      # décodeur puis rejette chaque paquet
-      # (`CDVDVideoCodecDRMPRIME::AddData - send packet failed: -1094995529`),
-      # alors que c'est la pile stateful qui avait déjà fonctionné.
-      #
-      # Les deux drivers revendiquent le même compatible : un seul doit être
-      # construit, d'où le `is not set` explicite.
-      default = ''
-        CONFIG_VIDEO_MESON_VDEC=m
-        # CONFIG_VIDEO_MESON_AMVDEC is not set
-        CONFIG_MEDIA_SUPPORT=m
-        CONFIG_MEDIA_CONTROLLER=y
-        CONFIG_VIDEO_DEV=m
-        CONFIG_V4L2_MEM2MEM_DEV=m
-        CONFIG_VIDEOBUF2_DMA_CONTIG=m
-        CONFIG_V4L2_H264=m
-        CONFIG_MESON_CANVAS=m
-      '';
-      description = "Kernel configuration fragment for the stateless VPU.";
+      default =
+        if cfg.vpu.mode == "stateful" then
+          ''
+            CONFIG_VIDEO_MESON_VDEC=m
+            # CONFIG_VIDEO_MESON_AMVDEC is not set
+            CONFIG_MEDIA_SUPPORT=m
+            CONFIG_MEDIA_CONTROLLER=y
+            CONFIG_VIDEO_DEV=m
+            CONFIG_V4L2_MEM2MEM_DEV=m
+            CONFIG_VIDEOBUF2_DMA_CONTIG=m
+            CONFIG_V4L2_H264=m
+            CONFIG_MESON_CANVAS=m
+          ''
+        else
+          ''
+            # CONFIG_VIDEO_MESON_VDEC is not set
+            CONFIG_VIDEO_MESON_AMVDEC=m
+            CONFIG_MEDIA_SUPPORT=m
+            CONFIG_MEDIA_CONTROLLER=y
+            CONFIG_VIDEO_DEV=m
+            CONFIG_V4L2_MEM2MEM_DEV=m
+            CONFIG_VIDEOBUF2_DMA_CONTIG=m
+            CONFIG_V4L2_H264=m
+            CONFIG_MESON_CANVAS=m
+          '';
+      description = "Kernel configuration fragment for the selected VPU mode.";
     };
   };
 
