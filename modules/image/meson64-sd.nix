@@ -13,6 +13,7 @@ let
     dtbName = config.hardware.deviceTree.name;
     rootLabel = config.sdImage.rootVolumeLabel;
     bootParams = config.boot.kernelParams;
+    toplevel = config.system.build.toplevel;
   };
 in
 {

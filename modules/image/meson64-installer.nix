@@ -16,6 +16,7 @@ let
     dtbName = n5TargetDtb;
     rootLabel = "NIXOS_SD";
     bootParams = n5TargetBootParams;
+    toplevel = n5TargetSystem;
   };
 
   installScript = pkgs.writeShellScript "n5-install" ''

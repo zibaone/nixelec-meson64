@@ -12,6 +12,11 @@
 
   hardware.deviceTree.name = lib.mkForce "amlogic/meson-gxl-s905x-p212.dtb";
 
+  # VPU stateless meson-amvdec : c'est une capacité de la carte, pas du
+  # lecteur. Sans elle, DRMPRIME n'a pas de décodeur à sélectionner et Kodi
+  # décode en CPU sans le dire.
+  nixelec.vpu.enable = lib.mkDefault true;
+
   boot.loader.grub.enable = lib.mkForce false;
   boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
 

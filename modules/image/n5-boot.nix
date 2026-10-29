@@ -8,15 +8,21 @@
       dtbName,
       rootLabel,
       bootParams,
+      toplevel,
     }:
     let
       dtbBase = builtins.baseNameOf dtbName;
+      # `init=` is mandatory: stage-1's initrd-find-nixos-closure reads it from
+      # /proc/cmdline and exits 1 without it ("No init= parameter on the kernel
+      # command line"). GRUB/extlinux normally inject it; our vendor-U-Boot
+      # autoscript sets bootargs by hand, so we must add it explicitly.
       bootArgs = lib.concatStringsSep " " (
         bootParams
         ++ [
           "root=LABEL=${rootLabel}"
           "rootwait"
           "rw"
+          "init=${toplevel}/init"
         ]
       );
       script = pkgs.writeText "n5-autoscript.txt" ''
