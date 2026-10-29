@@ -5,15 +5,6 @@
 }:
 
 {
-  imports = [ ../system/boot-payload.nix ];
-
-  # Le vendor U-Boot de cette carte ne lit pas extlinux.conf : il charge
-  # `uImage.multi` + un DTB depuis la première partition, avec `init=` figé dans
-  # les bootargs de `boot.scr`. Sans ce module, chaque `nixos-rebuild switch`
-  # était perdu au reboot (« do not know how to make this configuration
-  # bootable ») ; avec lui, la charge utile suit l'activation.
-  nixelec.meson64.bootPayload.enable = lib.mkDefault true;
-
   hardware.nixbian = {
     board = lib.mkDefault "aml-s9xx-box";
     kernelVendor = lib.mkDefault "edge";
