@@ -114,20 +114,38 @@ in
         "ir_nec_decoder"
       ];
 
-      # La carte son (`gx-sound-card`) crée un PCM par dai-link du DT, mais
-      # seulement pour les liens dont le codec est déjà enregistré au moment de
-      # sa sonde. La carte et le codec HDMI sont deux modules indépendants :
-      # sans ordre imposé, la carte se sonde la première, le lien HDMI n'est
-      # jamais exposé et il ne reste que `fe.dai-link-0` (l'ACODEC analogique).
-      # Mesuré le 2026-10-28 : PCM du HDMI absent, tous les contrôles du mixer
-      # en `ACODEC*`, aucun son sur la TV. `softdep` force le codec avant.
-      # Priorité normale, pas `mkDefault` : un autre module définit cette
-      # option à priorité 100 avec une chaîne vide, et une définition plus
-      # faible est alors écrasée en silence (vérifié : mkDefault rendait "").
-      # À priorité égale, les chaînes se concatènent.
-      boot.extraModprobeConfig = ''
-        softdep snd_soc_meson_gx_sound_card pre: snd_soc_hdmi_codec snd_soc_meson_aiu
-      '';
+      # L'AIU achemine son PCM vers le HDMI, l'ACODEC ou le SPDIF par un
+      # sélecteur de mixer, `AIU HDMI CTRL SRC`, qui vaut DISABLED au boot.
+      # Tant qu'il n'est pas sur I2S, le flux part vers l'ACODEC analogique :
+      # le HDMI reste muet alors que la carte son, le codec HDMI et son ELD
+      # sont présents et que le graphe DAPM est entièrement alimenté.
+      # Mesuré sur Magicsee N5 le 2026-10-29 : `eld#2` identifie la TV, les
+      # widgets « AIU HDMI I2S IN », « HDMITX I2S Playback » et « HDMITX TX »
+      # sont On, le PCM tourne — seul ce sélecteur était faux. Un `softdep`
+      # sur la carte avait été tenté la veille : inopérant (ordre de
+      # chargement inchangé, et `modprobe --show-depends` ne le liste pas).
+      systemd.services.meson-hdmi-audio-route = {
+        description = "Router le PCM de l'AIU vers le bloc HDMI";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "sound.target" ];
+        before = [ "kodi.service" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+        # Boucle bornée : la carte peut apparaître après le démarrage du
+        # service, `amixer cset` échoue tant qu'elle n'est pas enregistrée.
+        script = ''
+          i=0
+          while [ "$i" -lt 20 ]; do
+            ${pkgs.alsa-utils}/bin/amixer -c 0 cset name='AIU HDMI CTRL SRC' I2S && exit 0
+            i=$((i + 1))
+            sleep 0.5
+          done
+          echo "AIU HDMI CTRL SRC introuvable : routage HDMI non appliqué" >&2
+          exit 1
+        '';
+      };
 
       boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkDefault 0;
 
