@@ -1,4 +1,9 @@
-{ pkgs, lib, config, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 
 let
   qca9377 = pkgs.runCommand "qca9377-firmware" { nativeBuildInputs = [ pkgs.zstd ]; } ''

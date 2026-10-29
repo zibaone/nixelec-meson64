@@ -8,24 +8,32 @@
 # L'échantillon est encodé à la construction par un ffmpeg doté de libx264 qui
 # tourne sur la machine de build : la cible n'a aucun encodeur, et committer un
 # binaire de plusieurs Mio dans le dépôt serait pire.
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
   cfg = config.nixelec.decodeTools;
 
-  sample = pkgs.runCommand "n5-h264-1080p-sample" {
-    nativeBuildInputs = [ cfg.sampleEncoder ];
-  } ''
-    mkdir -p $out
-    ffmpeg -hide_banner -loglevel error \
-      -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=6" \
-      -c:v libx264 -profile:v high -level 4.1 -pix_fmt yuv420p \
-      -b:v 4M -g 60 -threads 1 \
-      -x264-params "keyint=60:min-keyint=60:scenecut=0" \
-      -fflags +bitexact -flags +bitexact \
-      "$out/sample-1080p.h264"
-    ls -l "$out/sample-1080p.h264"
-  '';
+  sample =
+    pkgs.runCommand "n5-h264-1080p-sample"
+      {
+        nativeBuildInputs = [ cfg.sampleEncoder ];
+      }
+      ''
+        mkdir -p $out
+        ffmpeg -hide_banner -loglevel error \
+          -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=6" \
+          -c:v libx264 -profile:v high -level 4.1 -pix_fmt yuv420p \
+          -b:v 4M -g 60 -threads 1 \
+          -x264-params "keyint=60:min-keyint=60:scenecut=0" \
+          -fflags +bitexact -flags +bitexact \
+          "$out/sample-1080p.h264"
+        ls -l "$out/sample-1080p.h264"
+      '';
 
 in
 {
@@ -55,9 +63,7 @@ in
     # le décodage tombe, quel que soit l'état du reste de la chaîne.
     nixelec.vdecFirmware.enable = true;
 
-    environment.systemPackages =
-      [ pkgs.v4l-utils ]
-      ++ lib.optional (cfg.ffmpeg != null) cfg.ffmpeg;
+    environment.systemPackages = [ pkgs.v4l-utils ] ++ lib.optional (cfg.ffmpeg != null) cfg.ffmpeg;
 
     # Mesure reproductible : logiciel vs hwaccel. `-benchmark` donne utime/stime,
     # qui sont le seul moyen honnête de distinguer un décodage matériel d'un
