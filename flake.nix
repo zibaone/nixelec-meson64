@@ -2,7 +2,7 @@
   description = "nixelec-meson64 — couche NixOS réutilisable pour Amlogic meson64 (GX/G12/SM1)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/cd4ea8d57de16f4810bc5f14207bac45fbf19f67";
 
     flake-parts.url = "github:hercules-ci/flake-parts";
 
