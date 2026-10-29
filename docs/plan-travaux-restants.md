@@ -18,10 +18,11 @@
   (`192.168.1.21/24`, `proto dhcp`), IPv6 SLAAC, ping passerelle 0 % de perte.
 - **Débit WiFi mesuré** (hôte lui aussi en WiFi, donc plancher) : 38,6 Mbps en
   réception, 14,9 Mbps en émission. Suffisant pour du 1080p H.264.
-- ~~Audio HDMI jusqu'à l'ALSA~~ — **rétracté le 2026-10-28** : la mesure était
-  juste (PCM `RUNNING`, `S24_LE`, 48 kHz) mais le PCM en question est
-  `fe.dai-link-0`, c'est-à-dire l'**ACODEC analogique interne**, pas le HDMI.
-  Voir B3 pour la preuve et la cause.
+- **Audio HDMI** (2026-10-29) : l'AIU n'expose qu'un PCM applicatif et
+  aiguille ensuite vers le HDMI, l'ACODEC ou le SPDIF par le sélecteur
+  `AIU HDMI CTRL SRC`, qui vaut `DISABLED` au boot — tout partait donc vers
+  l'analogique. Sur `I2S`, le son sort. La rétractation du 2026-10-28 est
+  levée ; voir B3 et `docs/diagnostics/n5-audio-hdmi-2026-10-29.md`.
 - **CEC** : `meson-ao-cec` obtient l'**adresse physique `2.0.0.0`** de la TV
   (entrée HDMI 2) et une adresse logique — la poignée de main CEC fonctionne.
   Reste l'usage fonctionnel (télécommande du téléviseur).
@@ -41,7 +42,7 @@
 |---|---|---|---|---|
 | B1 | **WiFi QCA9377** — *cause identifiée, correctif appliqué* | l'arbre de modules subit un élagage **deny-by-default** (`prune_modules.py` : socle par préfixe + alias `of:` du DTB + liste `--keep`). `drivers/net/wireless/` n'est ni dans le socle ni dans la liste, et le QCA9377 est un périphérique **SDIO** : son alias `sdio:c*v0271d0701*` n'est jamais lu (seuls les `of:` le sont), et le DTB p212 déclare `mmc@70000/wifi@1` **sans `compatible`**. 4450 modules compilés → 1723 conservés. Le `modules.order` recopié verbatim fait croire à tort que le module est là. | `ath10k_sdio` ajouté à `extraKeep` (fermeture : ath10k_core, mac80211, cfg80211, ath, rfkill, libarc4). **Validé le 2026-10-28** : `wlan0` apparaît, firmware `WLAN.TF.1.1.1-00061-QCATFSWPZ-1` chargé, `rfkill` voit `phy0`. Reste : l'image n'embarque **aucun supplicant** (`wpa_supplicant`/`iw` ajoutés depuis). Le message `failed to fetch board data … board-2.bin` suivi de `board_file api 1 crc32 544289f7` est le comportement **normal** de ce chip en mainline : `board-2.bin` ne contient que 37 entrées `bus=pci` et zéro `bus=sdio`, et le fichier d'`armbian/firmware` fait exactement la même taille (304 308 o) — il n'apporte rien. Le repli sur `board.bin` fonctionne (confirmé sur la liste ath10k par l'auteur LibreELEC). Un board file propre à la carte ne peut venir que du firmware vendor Android. | **validé sur carte** : association, IPv4 DHCP, IPv6, débit 38,6/14,9 Mbps |
 | B2 | **télécommande IR** | `rc0` actif (`meson_ir` conservé par l'élagage), mais protocole `[lirc]` brut et aucune keymap. **Deuxième effet du même élagage** : les décodeurs rc-core (`ir-nec-decoder`…) n'ont aucun compatible OF et disparaissaient aussi — `ir_nec_decoder` est maintenant dans `extraKeep` | reste : activer `nec` + une keymap correspondant à la télécommande (30 min, après identification) | carte |
-| B3 | **audio HDMI — non fonctionnel** (rétractation du 2026-10-28) | La carte `S905X-P212` n'expose **qu'un PCM** : `00-00: fe.dai-link-0`. Or le DTS p212 déclare **quatre** `dai-link` et celui du HDMI est `dai-link-2`, dont le codec est `hdmi-tx@c883a000` ; il n'est **pas** enregistré. Preuves concordantes : tous les contrôles du mixer sont `ACODEC*` (codec analogique interne), aucun contrôle HDMI ; `aplay` sur `plughw:0,0` réussit mais ne produit aucun son sur la TV ; `dmesg` ne montre aucune ligne d'enregistrement de carte ASoC. Les deux codecs sont pourtant liés à leurs pilotes (`hdmi-audio-codec.2.auto → hdmi-audio-codec`, `dw-hdmi-i2s-audio.0.auto → dw-hdmi-i2s-audio`). **Cause probable : ordre de sonde** — la carte s'enregistre avant que le codec HDMI ne soit disponible, et un lien sans codec n'est pas exposé. Le rechargement à chaud est impossible : `modprobe -r snd_soc_meson_gx_sound_card` provoque un **segfault** et le module reste chargé. | rebuild noyau avec `SND_SOC_HDMI_CODEC`/`SND_DW_HDMI_I2S_AUDIO` en `=y` (ou carte en module chargé après) : ~50 min de build + test | build + carte |
+| B3 | **audio HDMI — résolu** (2026-10-29) | Ce n'était ni un module manquant ni un ordre de sonde : `gx-card` ne crée un PCM que pour les DAI dont le nom contient « FIFO », donc **un seul PCM est le comportement normal** ; le HDMI est un back-end (`dai-link-2`). Tout était en place — `eld#2` identifie la TV (SAMSUNG, 6 SAD), `i2s-hifi` est enregistré, les widgets `AIU HDMI I2S IN` / `HDMITX I2S Playback` / `HDMITX TX` sont `On` pendant la lecture, PCM `RUNNING` en `S24_LE` 48 kHz. Le flux était détourné par `AIU HDMI CTRL SRC` (numid 14), à `DISABLED` ; `PCM` (1) ne donne rien, **`I2S` (2) donne le son**. Le `softdep` tenté la veille n'avait aucun effet et a été retiré. | corrigé par `systemd.services.meson-hdmi-audio-route` dans `modules/family/meson64.nix` ; **validé le 2026-10-29** après démarrage à froid : service `success`, sélecteur à `I2S` sans intervention, 440 Hz entendu | — |
 | B4 | **CEC** — *lien validé, usage fonctionnel non* | `cec-ctl -S` le 2026-10-28 : pilote `meson-ao-cec` 7.0.14, capacités `Logical Addresses / Transmit / Passthrough / Connector Info`, **adresse physique `2.0.0.0`** obtenue de la TV, adresse logique `0x2`. La poignée de main CEC fonctionne ; il reste à faire piloter Kodi par la télécommande du téléviseur | 2–3 h, config Kodi + test TV | board + code |
 | B5 | **HEVC 4K** | le VPU GXL décode l'HEVC 4K, **jamais testé** ; c'est la valeur du boîtier sur une TV 4K | 1 h | board |
 | B6 | **suspend / thermique** | jamais testés ; GXL throttlé au-delà de ~80 °C | 2 h | board |
@@ -76,7 +77,7 @@
 A1 (pousser la branche + CI) · C4 (realigner la doc) · B2 (préparer la keymap, en attente de l'identification de la télécommande) · D1 (étude d'impact du rebase FFmpeg 7.x, sans compiler).
 
 **Vague 2 — un build + des tests carte, en parallèle l'un de l'autre**
-B1 (build noyau, lane build) **pendant** B3 et B5 (tests audio et HEVC 4K, lane board). Les deux lanes ne se disputent rien : le build tourne en qemu, les tests sur le boîtier.
+B1 (build noyau, lane build) **pendant** B5 (HEVC 4K, lane board). Les deux lanes ne se disputent rien : le build tourne en qemu, les tests sur le boîtier.
 
 **Vague 3 — après validation des précédents**
 C2 (migration de la couche kiosque : 3 dépôts, commits séparés) · B4 (CEC) · C1/C3 (finitions).
