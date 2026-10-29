@@ -39,7 +39,7 @@ in
         "stateful"
         "stateless"
       ];
-      default = "stateful";
+      default = "stateless";
       description = ''
         Which kernel driver claims the VPU.
 
@@ -48,11 +48,16 @@ in
         (LibreELEC backport, V4L2 Request API) consumed by the patched FFmpeg of
         `nix-v4l2-request`.
 
-        Both drivers claim the same compatible, so exactly one is built. The
-        default is `stateful` because it is the path that has actually decoded
-        on the N5; `stateless` is kept selectable to measure it without losing
-        the working configuration — the two systems are separate hosts in the
-        fleet, so switching is a deploy plus a reboot, not a rewrite.
+        Both drivers claim the same compatible, so exactly one is built.
+
+        Measured on the N5 (S905L, 7.0.14) on 2026-10-30, 300 frames of
+        1080p30: stateless decodes H.264, HEVC and HEVC 10-bit with 0 decode
+        errors for about 1 s of CPU per 10 s of video, against 19 s (H.264) and
+        48 s (HEVC) in software. Stateful decodes H.264 too but spends 8 s in
+        kernel time copying planes, and Kodi cannot render it without the
+        `v4l2-drmprime` patch (which has no FFmpeg 6 port). `stateless` is
+        therefore the default; `stateful` stays selectable as a fallback and
+        for measurements.
       '';
     };
 
