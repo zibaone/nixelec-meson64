@@ -53,7 +53,7 @@
 | # | dette | coût | lane |
 |---|---|---|---|
 | C1 | `kodi` → `kodi-kiosk` (parité de fermeture avec sunxi64) | 30 min + build | build |
-| C2 | couche kiosque neutre — **plan établi, 5 commits sur 4 dépôts** : C1 créer `nixelec-kiosk` (copie verbatim + le XML CEC qui voyage avec le module), C2 ré-export depuis `nixelec-sunxi64` (aucune rupture), C3 `HavenOS` (import + `wifi-uwe5622` conditionnel + **réinjecter les overlays `v4l2request`**, sinon −149 Mio de trim et chemins de store différents), C4 `nixelec-meson64` (supprimer le doublon en conservant `vdecFirmware`, `hardware.graphics`, `video=`, getty), C5 hôte N5 dans HavenOS — **impossible aujourd'hui** : pas d'input `nixelec-meson64` et le dépôt n'a aucun remote git | 1 j | papier + build |
+| C2 | couche kiosque neutre — **plan établi, 5 commits sur 4 dépôts** : C1 créer `nixelec-kiosk` (copie verbatim + le XML CEC qui voyage avec le module), C2 ré-export depuis `nixelec-sunxi64` (aucune rupture), C3 `HavenOS` (import + `wifi-uwe5622` conditionnel + **réinjecter les overlays `v4l2request`**, sinon −149 Mio de trim et chemins de store différents), C4 `nixelec-meson64` (supprimer le doublon en conservant `vdecFirmware`, `hardware.graphics`, `video=`, getty), C5 hôte N5 dans HavenOS — **fait le 2026-10-29** : `nixelec-kiosk` créé, cartes kiosk-free, hôte N5 dans la flotte ; l'input `nixelec-kiosk` a été retiré depuis (le kiosque n'est consommé que par HavenOS) | 1 j | fait (`4505279`) |
 | C3 | routage MPEG-2 vers le logiciel dans Kodi (le VPU est plus lent) | 1 h de config | papier |
 | C4 | `docs/branches.md` et les statuts de README à réaligner sur les mesures | 30 min | papier |
 
