@@ -42,9 +42,17 @@ in
 
     config = lib.mkOption {
       type = lib.types.str;
+      # Chemin **stateful** (`meson-vdec`, V4L2 M2M) plutôt que le stateless
+      # `meson-amvdec` : sur la N5 mesurée le 2026-10-29, le stateless ouvre le
+      # décodeur puis rejette chaque paquet
+      # (`CDVDVideoCodecDRMPRIME::AddData - send packet failed: -1094995529`),
+      # alors que c'est la pile stateful qui avait déjà fonctionné.
+      #
+      # Les deux drivers revendiquent le même compatible : un seul doit être
+      # construit, d'où le `is not set` explicite.
       default = ''
-        # CONFIG_VIDEO_MESON_VDEC is not set
-        CONFIG_VIDEO_MESON_AMVDEC=m
+        CONFIG_VIDEO_MESON_VDEC=m
+        # CONFIG_VIDEO_MESON_AMVDEC is not set
         CONFIG_MEDIA_SUPPORT=m
         CONFIG_MEDIA_CONTROLLER=y
         CONFIG_VIDEO_DEV=m
