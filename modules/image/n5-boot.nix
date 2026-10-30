@@ -19,6 +19,10 @@
       bootArgs = lib.concatStringsSep " " (
         bootParams
         ++ [
+          # Sans `earlycon`, un plantage avant la sonde de `ttyAML0` est
+          # totalement silencieux : la carte reset et ne dit rien. C'est ce que
+          # font les autoscripts Armbian pour ces cartes.
+          "earlycon"
           "root=LABEL=${rootLabel}"
           "rootwait"
           "rw"
