@@ -727,3 +727,34 @@ et le store divergent, rien ne se répare sur place).
    NixOS : la boîte redémarre NixOS. Aucune procédure de retour à l'image
    vendor n'est décrite dans ce dépôt (HavenOS fournit `pyamlboot` pour le
    mode Mask ROM).
+
+## Deuxième banc, 30/10 au soir : l'alimentation neuve change tout
+
+Contexte : la carte bouclait sans jamais démarrer, et l'hypothèse d'écritures
+fausses sur le média (constatée avant le changement d'alimentation) n'avait jamais
+été départagée d'un défaut du chargeur.
+
+**Ce qui a été mesuré, dans l'ordre :**
+
+1. La recette `booti` (`Image` + `uInitrd`, noyau aligné `0x2000000`) **échoue
+   aussi depuis la SD** : le chargeur part en boucle (`noSof`, `card in`, retour
+   au prompt). Ce n'est donc pas la eMMC qui était en cause, c'est la commande.
+2. La recette `bootm` sur `uImage.multi` **démarre depuis la SD** : l'installateur
+   arrive au prompt login. C'est la seule combinaison qui fonctionne sur ce
+   U-Boot vendor (2015.01, 16/08/2018).
+3. Image reconstruite avec cette recette (`697 344 160` o,
+   sha256 `f26bbdc9…`), flashée, installateur démarré.
+4. Installation : `installation finished` **et `charge utile vérifiée : 11
+   fichiers`**. La vérification hors cache (démontage, remontage en lecture seule,
+   `blockdev --flushbufs`, comparaison) passe intégralement — c'est la première
+   fois depuis le début du banc.
+
+**Conclusion :** les échecs d'écriture venaient bien de l'alimentation défectueuse
+(le faux contact constaté le 30/10 en début de soirée). La procédure de
+vérification ajoutée (`1113a07`, `ae02a37`) fait exactement son travail : elle
+voit la différence quand la copie n'arrive pas, et elle la déclare conforme quand
+elle arrive.
+
+**Ce qui reste faux :** `booti` sur ce chargeur. L'autoscript est donc revenu à
+`bootm` + `uImage.multi` (commit `09198e2`), `uImage` et `uInitrd` restant produits
+dans la charge utile mais inutilisés.
