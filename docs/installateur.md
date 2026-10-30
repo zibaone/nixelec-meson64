@@ -442,7 +442,7 @@ findmnt -n -o SOURCE /                 # /dev/mmcblk0p2 attendu
 df -Pm /var/lib | tail -1              # colonne 4 >= 800
 cat /sys/class/block/mmcblk1p1/start   # >= 1368064
 ls -l /etc/n5/                         # install.sh, target-boot -> /nix/store/…
-nix-store -qR /run/current-system | grep -c 'nixos-system-magicsee-n5-bringup'
+nix-store -qR /run/current-system | grep -c 'nixos-system-magicsee-n5'
 ```
 
 - **C7** : `start` ≥ `1368064` (668 MiB) — la zone vendor est protégée.
@@ -492,13 +492,13 @@ mount -o ro /dev/mmcblk1p2 /mnt/p2
 ls -l /mnt/p1                               # 9 fichiers, mêmes tailles que P0
 diff -r /etc/n5/target-boot /mnt/p1         # aucune sortie
 cat /mnt/p1/uEnv.ini
-ls -l /mnt/p2/nix/var/nix/profiles/system   # -> /nix/store/…-nixos-system-magicsee-n5-bringup-…
+ls -l /mnt/p2/nix/var/nix/profiles/system   # -> /nix/store/…-nixos-system-magicsee-n5-…
 ls /mnt/p2/nix/store | wc -l                # plusieurs centaines
 umount /mnt/p1 /mnt/p2
 ```
 
 - **C12** : `uEnv.ini` de la **cible** porte `root=LABEL=NIXOS_SD` et
-  `init=/nix/store/…-nixos-system-magicsee-n5-bringup-…/init` — pas
+  `init=/nix/store/…-nixos-system-magicsee-n5-…/init` — pas
   `N5_INSTALL`, pas `n5-installer`.
 - **C13** : le profil `system` de la cible pointe sur un chemin de store
   **présent** dans `/mnt/p2/nix/store` (sinon la clôture n'a pas été copiée et
@@ -520,7 +520,7 @@ reading s905_autoscript          ← lu depuis la eMMC cette fois
 reading uImage.multi
 Booting NixOS from mmc 1:1       ← LA ligne qui compte
 …
-Kernel command line: … root=LABEL=NIXOS_SD rootwait rw init=/nix/store/…-nixos-system-magicsee-n5-bringup-…/init
+Kernel command line: … root=LABEL=NIXOS_SD rootwait rw init=/nix/store/…-nixos-system-magicsee-n5-…/init
 mmcblk1: mmc1:0001 MAG2GC 14.6 GiB
 [root@magicsee-n5:~]#
 ```
@@ -585,6 +585,12 @@ mren -i /dev/sdXp1 ::/uImage.multi ::/uImage.multi.bak   # et l'inverse au retou
 | C16 | P6 | invite `magicsee-n5` |
 | C17 | P7 | second boot identique, `uptime` à zéro |
 
+> **Nom de store** : il suit `networking.hostName` de la configuration, pas le
+> nom de la configuration lui-même. `magicsee-n5-bringup` a pour nom d'hôte
+> `magicsee-n5`, donc ses chemins sont `/nix/store/…-nixos-system-magicsee-n5-sd-card-…`.
+> Chercher `…-bringup-…` dans le store échoue sur une installation pourtant
+> réussie — erreur corrigée le 30/10 dans C8, C12, C13 et E13.
+
 ## 6. Modes de panne
 
 Chaque ligne se distingue par sa **signature**, pas par une intuition.
@@ -603,7 +609,7 @@ Chaque ligne se distingue par sa **signature**, pas par une intuition.
 | E10 | `nixos-install` | `path /mnt/n5 should have permissions 755` | `umask` exotique au moment du `mkdir` | `stat -c %a /mnt/n5` |
 | E11 | boot eMMC | après l'échec `mmc 0:1`, **rien** : U-Boot repart sur son `bootcmd` interne / l'ancien système / une invite | le vendor U-Boot ne cherche pas `s905_autoscript` sur `mmc 1:1` — **l'hypothèse non mesurée** | absence de `Booting NixOS from mmc 1:1` alors que `p1` contient bien le fichier (relu depuis la SD ou par `mdir` sur une image de `p1`) |
 | E12 | boot cible | `[FAILED] Failed to start Find NixOS closure` puis `No init= parameter on the kernel command line`, shell d'urgence, `root account is locked` | `init=` absent de la charge utile (artefact périmé) ou `p1` non écrite | `cat` de `uEnv.ini` sur `p1` ; `diff` avec `/etc/n5/target-boot` |
-| E13 | boot cible | `Kernel panic - not syncing: Attempted to kill init!` / `VFS: Cannot open root device "LABEL=NIXOS_SD"` | `init=` pointe un chemin absent du store de `p2`, ou label `NIXOS_SD` manquant | `blkid mmcblk1p2` ; `ls /mnt/p2/nix/store/<hash>-nixos-system-magicsee-n5-bringup-*` (C13) |
+| E13 | boot cible | `Kernel panic - not syncing: Attempted to kill init!` / `VFS: Cannot open root device "LABEL=NIXOS_SD"` | `init=` pointe un chemin absent du store de `p2`, ou label `NIXOS_SD` manquant | `blkid mmcblk1p2` ; `ls /mnt/p2/nix/store/<hash>-nixos-system-magicsee-n5-*` (C13) |
 | E14 | boot après install | la boîte rend l'invite `n5-installer` | la SD est encore en place : `mmc 0:1` gagne | retirer la SD, refaire P6 |
 | E15 | boot cible | `findmnt` = `mmcblk0p2` alors que l'U-Boot a dit `mmc 1:1` | deux disques portent `NIXOS_SD` (une image SD normale a été laissée insérée) | `blkid \| grep NIXOS_SD` |
 | E16 | console | aucune sortie UART, ou caractères illisibles | mauvais débit (115200 8N1) ou adaptateur 5 V | tester avec la SD de référence connue bonne |
