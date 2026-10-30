@@ -59,6 +59,11 @@
       cp ${uEnv} $out/uEnv.ini
       mkimage -A arm64 -O linux -T script -C none -n "N5 boot" -d ${script} $out/s905_autoscript
       cp $out/s905_autoscript $out/boot.scr
+      # Le U-Boot vendor charge `emmc_autoscript` sur mmc 1 quand il démarre
+      # depuis la eMMC (`start_emmc_autoscript`), et `s905_autoscript` sur mmc 0
+      # pour la SD. C'est le même script : il tente déjà mmc 0:1 puis retombe
+      # sur mmc 1:1, donc une simple copie suffit.
+      cp $out/s905_autoscript $out/emmc_autoscript
       mkimage -A arm64 -O linux -T kernel -C none -a 0x1080000 -e 0x1080000 -n NixOS -d ${kernel}/Image $out/uImage
       mkimage -A arm64 -O linux -T multi -C none -a 0x1080000 -e 0x1080000 -n "NixOS multi" -d ${kernel}/Image:${initrd} $out/uImage.multi
     '';
