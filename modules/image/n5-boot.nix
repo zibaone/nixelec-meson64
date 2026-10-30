@@ -29,25 +29,29 @@
           "init=${toplevel}/init"
         ]
       );
-      # Recette éprouvée sur ce chargeur : c'est `bootm` sur un `uImage.multi`
-      # (noyau + initrd dans un seul conteneur) qui a réellement démarré la
-      # carte. `booti` échoue ici (exception puis boucle), et `bootm` refuse un
-      # initrd brut (« Wrong Ramdisk Image Format »). `uImage`/`uInitrd` restent
-      # produits pour un essai ultérieur, mais l'autoscript n'en dépend pas.
+      # Mesuré sur ce chargeur (U-Boot 2015.01 du 16/08/2018) : la lecture FAT
+      # d'un fichier de 63 Mo (`uImage.multi`) rend des données fausses (Bad Data
+      # CRC) alors que le fichier est identique au store sur le média, vérifié
+      # depuis la carte elle-même. En revanche `Image` (38 Mo) et `initrd`
+      # (25 Mo) se lisent avec des CRC identiques. Le seuil est donc entre 38 et
+      # 63 Mo : on charge trois fichiers séparés, tous en dessous.
+      # `bootm` refuse un initrd brut, d'où `uInitrd` (initrd encapsulé uImage).
       script = pkgs.writeText "n5-autoscript.txt" ''
         setenv bootargs "${bootArgs}"
         setenv uimage_addr 0x20000000
+        setenv uinitrd_addr 0x13000000
         setenv fdt_addr 0x1000000
         setenv mmcdev 0
-        if fatload mmc 0:1 ''${uimage_addr} uImage.multi; then
+        if fatload mmc 0:1 ''${uimage_addr} uImage; then
           setenv mmcdev 0
         else
           setenv mmcdev 1
-          fatload mmc 1:1 ''${uimage_addr} uImage.multi
+          fatload mmc 1:1 ''${uimage_addr} uImage
         fi
+        fatload mmc ''${mmcdev}:1 ''${uinitrd_addr} uInitrd
         fatload mmc ''${mmcdev}:1 ''${fdt_addr} ${dtbBase}
-        echo "Booting NixOS (multi) from mmc ''${mmcdev}:1"
-        bootm ''${uimage_addr}
+        echo "Booting NixOS from mmc ''${mmcdev}:1"
+        bootm ''${uimage_addr} ''${uinitrd_addr} ''${fdt_addr}
       '';
       uEnv = pkgs.writeText "uEnv.ini" ''
         dtb_name=/${dtbBase}
