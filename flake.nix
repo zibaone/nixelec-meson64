@@ -33,6 +33,7 @@
         ./parts/modules.nix
         ./parts/configurations.nix
         ./parts/packages.nix
+        ./parts/devshells.nix
         ./parts/checks.nix
       ];
     };
