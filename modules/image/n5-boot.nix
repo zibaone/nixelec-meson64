@@ -33,7 +33,7 @@
       # (« Wrong Ramdisk Image Format »).
       script = pkgs.writeText "n5-autoscript.txt" ''
         setenv bootargs "${bootArgs}"
-        setenv kernel_addr 0x1080000
+        setenv kernel_addr 0x2000000
         setenv initrd_addr 0x13000000
         setenv fdt_addr 0x1000000
         setenv mmcdev 0
