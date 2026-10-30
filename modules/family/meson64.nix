@@ -222,6 +222,9 @@ in
         cecDriver = lib.mkDefault "cec-meson-ao";
         hdmiConnector = lib.mkDefault "HDMI-A-1";
         videoMode = lib.mkDefault "1920x1080@60";
+        # La console de cette famille est le ttyAML0 du pilote meson_serial,
+        # pas le ttyS0 de l'8250 : le getty de ttyS0 échoue à chaque boot.
+        consoleTty = lib.mkDefault "ttyAML0";
         watchdog = {
           enable = lib.mkDefault false;
           maxTimeout = lib.mkDefault null;
