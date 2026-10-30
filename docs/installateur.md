@@ -758,3 +758,58 @@ elle arrive.
 **Ce qui reste faux :** `booti` sur ce chargeur. L'autoscript est donc revenu à
 `bootm` + `uImage.multi` (commit `09198e2`), `uImage` et `uInitrd` restant produits
 dans la charge utile mais inutilisés.
+
+## La vraie cause du non-démarrage : la lecture FAT au-delà de 38 Mo
+
+Après une installation dont la charge utile est **vérifiée conforme** (11 fichiers,
+puis `cmp` depuis un montage en lecture seule), le démarrage échouait toujours :
+
+```
+reading emmc_autoscript
+Booting NixOS (multi) from mmc 1:1
+## Booting kernel from Legacy Image at 20000000 ...
+   Verifying Checksum ... Bad Data CRC
+ERROR: can't get kernel image!
+```
+
+Le fichier du média est identique au store (deux mesures indépendantes), et le
+`mkimage -l` de l'hôte le valide : **c'est donc la lecture du chargeur qui rend
+des données fausses**, pas le fichier.
+
+Comparaison décisive, mesurée depuis le prompt U-Boot :
+
+| fichier | taille | CRC relu par U-Boot |
+|---|---|---|
+| `initrd` | 25 Mo | identique |
+| `Image` | 38 Mo | identique |
+| `uImage.multi` | 63 Mo | **different** |
+
+Le défaut apparaît donc **entre 38 et 63 Mo**. Le `fatload` de ce U-Boot vendor
+(2015.01, 16/08/2018) annonce la bonne taille mais rend des octets faux au-delà de
+ce seuil.
+
+**Correctif :** l'autoscript charge trois fichiers séparés, tous sous le seuil —
+`uImage` (36,6 Mo), `uInitrd` (24 Mo) et le DTB — puis `bootm` à trois arguments.
+`uInitrd` est nécessaire parce que `bootm` refuse un initrd cpio brut
+(« Wrong Ramdisk Image Format »). Commit `a2e6f3a`.
+
+**Résultat, SD retirée, démarrage autonome depuis la eMMC :**
+
+```
+GXL:BL1:9ac50e:bb16dc;FEAT:ADFC318C:0;POC:3;RCY:0;EMMC:0;READ:0;0.0;CHK:0;
+reading emmc_autoscript
+Booting NixOS from mmc 1:1
+   Verifying Checksum ... OK
+   Verifying Checksum ... OK
+Linux version 7.0.14 (nixbld@localhost) ...
+Freeing initrd memory: 24572K
+magicsee-n5 login: root (automatic login)
+```
+
+État après démarrage : **0 unité en échec**, `12 Gio` libres sur `/`, `1,4 Gio`
+utilisés, système `xbxmvl4n…`.
+
+La charge utile restant épinglée hors du système (décision 8), elle a été posée à
+la main sur le média : `emmc_autoscript` et `s905_autoscript`, 729 octets,
+sha256 `048b46ba42ec9883d615e1db4c29928eca7e9e89050a73d47ef6377b0e5bb54f`. Le
+prochain `nixos-rebuild switch` ne la remplacera pas.
