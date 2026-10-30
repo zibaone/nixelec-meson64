@@ -29,30 +29,25 @@
           "init=${toplevel}/init"
         ]
       );
-      # Recette des cartes Amlogic à U-Boot vendor (cf. les autoscripts
-      # « box » d'Armbian/LibreELEC, seuls connus pour démarrer sur ce
-      # chargeur) : noyau à 0x02000000 (2 Mio d'alignement), initrd en uImage
-      # à 0x13000000, DTB à 0x04000000, `fdt addr` posé, puis `booti` SANS
-      # suffixe de taille. Le `booti` du vendor ne suit pas la syntaxe
-      # `<initrd>:<taille>` d'U-Boot amont ; `bootm` refuse un initrd brut
-      # (« Wrong Ramdisk Image Format »).
+      # Recette éprouvée sur ce chargeur : c'est `bootm` sur un `uImage.multi`
+      # (noyau + initrd dans un seul conteneur) qui a réellement démarré la
+      # carte. `booti` échoue ici (exception puis boucle), et `bootm` refuse un
+      # initrd brut (« Wrong Ramdisk Image Format »). `uImage`/`uInitrd` restent
+      # produits pour un essai ultérieur, mais l'autoscript n'en dépend pas.
       script = pkgs.writeText "n5-autoscript.txt" ''
         setenv bootargs "${bootArgs}"
-        setenv kernel_addr 0x2000000
-        setenv initrd_addr 0x13000000
-        setenv fdt_addr 0x4000000
+        setenv uimage_addr 0x20000000
+        setenv fdt_addr 0x1000000
         setenv mmcdev 0
-        if fatload mmc 0:1 ''${kernel_addr} Image; then
+        if fatload mmc 0:1 ''${uimage_addr} uImage.multi; then
           setenv mmcdev 0
         else
           setenv mmcdev 1
-          fatload mmc 1:1 ''${kernel_addr} Image
+          fatload mmc 1:1 ''${uimage_addr} uImage.multi
         fi
-        fatload mmc ''${mmcdev}:1 ''${initrd_addr} uInitrd
         fatload mmc ''${mmcdev}:1 ''${fdt_addr} ${dtbBase}
-        fdt addr ''${fdt_addr}
-        echo "Booting NixOS from mmc ''${mmcdev}:1"
-        booti ''${kernel_addr} ''${initrd_addr} ''${fdt_addr}
+        echo "Booting NixOS (multi) from mmc ''${mmcdev}:1"
+        bootm ''${uimage_addr}
       '';
       uEnv = pkgs.writeText "uEnv.ini" ''
         dtb_name=/${dtbBase}
