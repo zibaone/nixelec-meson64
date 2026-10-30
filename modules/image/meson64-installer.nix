@@ -94,40 +94,49 @@ let
     nixos-install --root /mnt/n5 --system "$target_system" --no-root-passwd
 
     # Copie de la charge utile, puis vérification octet par octet.
-    # Le 30/10 une copie a rendu 31 octets faux dans uImage.multi, à taille
-    # identique : le CRC échouait au bootm et la eMMC restait inerte, sans le
-    # moindre message. On relit donc depuis le média — drop_caches, sinon on
-    # compare avec la page cache issue de l'écriture — et on reprend une fois
-    # en recréant le fichier.
-    copy_and_verify() {
+    # Deux pièges mesurés sur la carte le 30/10 :
+    #  - `drop_caches` ne suffit pas tant que la FAT est montée : les pages de
+    #    l'inode restent référencées, la comparaison lit le cache d'écriture et
+    #    valide une copie fausse. Il faut démonter puis remonter en lecture seule.
+    #  - l'écriture doit être poussée au média (`blockdev --flushbufs`) avant de
+    #    conclure, sinon un `uImage.multi` — dernier fichier écrit — peut rester
+    #    absent du support alors que tout semble conforme.
+    copy_payload() {
       local f b
       for f in "$target_boot"/*; do
         b="$(basename "$f")"
         rm -f "/mnt/n5/boot/$b"
         cp "$f" "/mnt/n5/boot/$b"
       done
-      sync
-      echo 3 > /proc/sys/vm/drop_caches
-      for f in "$target_boot"/*; do
-        b="$(basename "$f")"
-        cmp -s "$f" "/mnt/n5/boot/$b" && continue
-        echo "  $b diffère du store — nouvelle copie" >&2
-        rm -f "/mnt/n5/boot/$b"
-        cp "$f" "/mnt/n5/boot/$b"
-        sync
-        echo 3 > /proc/sys/vm/drop_caches
-        if ! cmp -s "$f" "/mnt/n5/boot/$b"; then
-          echo "  $b reste corrompu sur $p1" >&2
-          return 1
-        fi
-      done
-      return 0
     }
 
-    if ! copy_and_verify; then
-      echo "charge utile d'amorçage corrompue sur $p1 — installation interrompue" >&2
-      echo "la carte ne démarrerait pas ; relancer l'installation" >&2
-      exit 1
+    verify_payload() {
+      local f b bad=0
+      sync
+      blockdev --flushbufs "$p1" 2>/dev/null || true
+      umount /mnt/n5/boot 2>/dev/null || true
+      mount -o ro "$p1" /mnt/n5/boot
+      for f in "$target_boot"/*; do
+        b="$(basename "$f")"
+        if ! cmp -s "$f" "/mnt/n5/boot/$b"; then
+          echo "  $b diffère du store" >&2
+          bad=1
+        fi
+      done
+      umount /mnt/n5/boot
+      mount -o rw "$p1" /mnt/n5/boot
+      return "$bad"
+    }
+
+    copy_payload
+    if ! verify_payload; then
+      echo "nouvelle copie après écart constaté" >&2
+      copy_payload
+      if ! verify_payload; then
+        echo "charge utile d'amorçage corrompue sur $p1 — installation interrompue" >&2
+        echo "la carte ne démarrerait pas ; relancer l'installation" >&2
+        exit 1
+      fi
     fi
     echo "charge utile vérifiée : $(ls -1 /mnt/n5/boot | wc -l) fichiers"
 
