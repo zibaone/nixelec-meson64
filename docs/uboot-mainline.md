@@ -75,3 +75,42 @@ procédure MaskROM ci-dessus écrite noir sur blanc et testée.
 - Le U-Boot vendor cherche `emmc_autoscript` sur `mmc 1` et `s905_autoscript` sur
   `mmc 0` : les deux noms doivent être présents.
 - `stat -c %s` sur un lien du store mesure le lien (96 o) : utiliser `stat -L`.
+
+## Résultat du 30/10 : MaskROM refuse le payload
+
+Quatre tentatives de charger le FIP en RAM par USB OTG (`amlboot p212`), sur deux
+ports et avec deux BL2 différents :
+
+| tentative | résultat |
+|---|---|
+| BL2 de pyamlboot (`files/p212`), port 1 | `Errno 5` à la première écriture mémoire |
+| BL2 de notre FIP, port 1 | `Errno 5` au même endroit |
+| idem, port USB 2 (`Bus 003`) | `Errno 19` : le périphérique **se déconnecte** |
+| BL2 écrit par `REQ_WR_LARGE_MEM` (0x11), outil lancé **avant** la carte | `Errno 110` : timeout bulk |
+
+`dmesg` est sans ambiguïté : `New USB device found, idVendor=1b8e, idProduct=c003`
+puis `USB disconnect` — aucune erreur de bus, aucun `error -71`. Le lien est sain ;
+c'est le ROM qui coupe, systématiquement, à la première écriture mémoire. Le
+lancement avant la carte (fenêtre de ~20 s du chien de garde) ne change rien.
+
+**Hypothèse retenue : secure boot activé.** Le BL1 n'accepte qu'un BL2 signé par
+Amlogic : il laisse l'identification (`ROM: 0.7 Stage: 0.16`) puis rejette tout
+chargement.
+
+### Conséquence : la voie SD devient risquée
+
+Si le ROM vérifie les signatures, il refusera aussi notre FIP sur la SD. Or
+neutraliser le chargeur eMMC (écrire des zéros dans le premier Mio) pour forcer
+la SD serait alors **sans retour** : plus de chargeur eMMC, FIP SD refusé, et un
+MaskROM qui n'écrit rien. **Ne pas tenter sans preuve préalable que le ROM accepte
+un FIP non signé.**
+
+### Ce qui reste praticable
+
+1. Garder le U-Boot vendor (il lit correctement nos fichiers : mesuré, `Image`,
+   `initrd`, `boot.scr` et le DTB passent le CRC depuis la eMMC).
+2. Refaire une installation propre **avec l'alimentation neuve** : les derniers
+   échecs de démarrage venaient de fichiers faux sur le média (`Bad Data CRC` y
+   compris sur `uImage`), écrits avant le changement d'alimentation.
+3. Utiliser la recette de référence (`uImage` + `uInitrd` + DTB, `bootm` à trois
+   arguments) qui est celle des cartes Amlogic à U-Boot vendor.
