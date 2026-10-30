@@ -42,36 +42,57 @@ cible = eMMC. Données de l'eMMC déclarées jetables par l'opérateur (Ubuntu 2
 | p5 | **OK** — p1 = `NIXOS_BOOT` avec 9 fichiers et `init=xbxmvl4n…` ; p2 = `NIXOS_SD`, `init` exécutable, 601 entrées de store |
 | p6 | **ÉCHEC** — voir ci-dessous |
 
-### Pourquoi la eMMC ne démarre pas
+### Pourquoi la eMMC ne démarrait pas
 
 Deux causes distinctes, mesurées depuis le prompt U-Boot vendor
-(`gxl_p212_v1#`) :
+(`gxl_p212_v1#`) puis sur la carte.
 
 1. **Le nom du script d'amorçage.** L'environnement vendor fait
    `start_emmc_autoscript = fatload mmc 1 1020000 emmc_autoscript && autoscr 1020000`,
-   alors que la charge utile ne fournit que `s905_autoscript` (le nom attendu côté
-   SD : `fatload mmc 0 1020000 s905_autoscript`). Sans `emmc_autoscript`, il tombe
-   sur `storeboot` (Android, effacé) puis rend la main au prompt.
-2. **Le chargeur ne sait pas démarrer l'image.** En lui donnant le fichier existant
-   à la main, il lit bien `uImage.multi` (63 527 012 o, taille **identique** au
-   store, `mkimage -l` valide), puis :
-   `Verifying Checksum ... Bad Data CRC` / `ERROR: can't get kernel image!`.
-   Le même fichier démarre depuis la SD : c'est le chargeur de la eMMC qui est en
-   cause, pas l'image.
+   alors que la charge utile ne fournissait que `s905_autoscript` — le nom attendu
+   côté SD (`start_mmc_autoscript = fatload mmc 0 1020000 s905_autoscript`). Sans
+   `emmc_autoscript`, il tombe sur `storeboot` (Android, effacé) puis rend la main
+   au prompt.
+2. **Une copie corrompue.** Le `uImage.multi` lu sur la eMMC différait du store :
+   `cmp` a trouvé **31 octets faux, contigus** (31 249 250 → 31 249 275), à
+   **taille identique** (63 527 012 o, exactement celle du store), sans aucune
+   erreur MMC dans `dmesg`. D'où, au `bootm` :
+   `Verifying Checksum ... Bad Data CRC` puis `ERROR: can't get kernel image!`.
+   `Image` et `initrd` étaient intacts, et `mkimage -l` valide le fichier du
+   store : c'est bien la copie vers la FAT qui était en cause, pas l'image.
 
-### Ce que l'installateur doit faire en plus
+**Le chargeur n'était pas en cause**, contrairement à la première lecture de ce
+banc : l'image SD n'écrit aucun binaire d'amorçage (`firmwarePartitionOffset = 1`,
+premier MiB vide). Le SoC retombe sur le U-Boot de la eMMC, qui charge ensuite
+`s905_autoscript` depuis la SD (`mmc 0`). Le même chargeur amorce donc les deux
+médias : seule la donnée sur la FAT était fausse.
 
-`/etc/n5/install.sh` ne touche pas à la zone d'amorçage (les 668 MiB vendor sont
-sauvegardés, et c'est volontaire). Or c'est précisément là que vit le U-Boot
-capable de démarrer nos images. Il manque :
+Après recopie vérifiée (`cmp` = 0) et pose manuelle de `emmc_autoscript`, la carte
+démarre depuis `EMMC:0`, sur `/dev/mmcblk1p2`, avec le toplevel installé.
 
-- écrire le binaire d'amorçage de l'image SD (les premiers secteurs) dans la eMMC,
-  après sauvegarde du préfixe ;
-- déposer un `emmc_autoscript` sur p1, identique à `s905_autoscript` (le script
-  gère déjà les deux médias : il tente `mmc 0:1` puis retombe sur `mmc 1:1`) ;
-- vérifier, après copie, que la taille des fichiers de p1 correspond au store —
-  un `cp` tronqué sur FAT ne se voit pas autrement qu'à l'erreur de CRC au boot.
+### Résultat du banc
 
+| point | mesure |
+|---|---|
+| C14 (boot eMMC) | **OK** — `GXL:BL1 … EMMC:0`, `Booting NixOS from mmc 1:1` |
+| C15 (identité) | **OK** — `/run/current-system` = `/nix/store/xbxmvl4n…-nixos-system-magicsee-n5-…`, racine `/dev/mmcblk1p2` |
+| C16 (état) | **OK** — `systemctl is-system-running` = `running`, **0 unité en échec**, `hostname` = `magicsee-n5` |
+| C17 (persistance) | **OK** — second démarrage, même toplevel, 0 échec |
+
+Le doute sur `/etc/hostname` est levé : lu depuis l'installateur il rendait
+`n5-installer` parce que `/etc/static` est un lien **absolu** vers `/nix/store`,
+résolu dans l'espace de noms de l'installateur. Au démarrage, la carte porte bien
+`magicsee-n5`.
+
+### Correctifs portés dans l'installateur
+
+- `n5-boot.nix` publie `emmc_autoscript` en plus de `s905_autoscript` — même
+  script, il tente déjà `mmc 0:1` puis retombe sur `mmc 1:1` ;
+- `meson64-installer.nix` monte p1 en écriture explicite (`-o rw`), puis
+  **vérifie chaque fichier octet par octet** après `sync` et `drop_caches` — sans
+  le `drop_caches` la comparaison lit la page cache de l'écriture et valide une
+  copie fausse — reprend une fois en recréant le fichier, et **s'arrête** si
+  l'écart persiste au lieu de laisser une carte non amorçable.
 ## 1. Ce que fait l'image, étape par étape
 
 ### 1.1 D'où elle vient
