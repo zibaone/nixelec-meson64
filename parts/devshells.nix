@@ -6,6 +6,7 @@
       # avec le préfixe `aarch64-unknown-linux-gnu-` (ce que fournit `stdenv.cc`
       # du jeu croisé, contrairement à `buildPackages` qui reste l'hôte).
       cross = pkgs.pkgsCross.aarch64-multiplatform;
+      aml = pkgs.callPackage ../pkgs/pyamlboot.nix { };
     in
     {
       devShells.uboot = pkgs.mkShell {
@@ -37,6 +38,9 @@
           libusb1
           usbutils
           python3Packages.pyusb
+          aml.amlboot # charge un U-Boot en RAM, n'écrit rien
+          aml.amlbulk
+          aml.amlsocid
 
           # console série et inspection
           picocom
@@ -54,8 +58,9 @@
           echo "  config   : make p212_defconfig"
           echo "  build    : make -j\$(nproc)"
           echo "  SD       : u-boot.bin.sd.bin en tête de carte (premier MiB)"
-          echo "  MaskROM  : python3 -m venv .venv-amlboot && .venv-amlboot/bin/pip install pyamlboot"
-          echo "             (câble USB A-A, la ROM attend un binaire GXL sur le port OTG)"
+          echo "  MaskROM  : amlboot p212 --image build-uboot/fip/u-boot.bin.usb.tpl"
+          echo "             (câble USB A-A ; lsusb doit montrer 1b8e:c003)"
+          echo "  FIP      : ./scripts/uboot-p212-fip.sh (build-fip.sh lepotato)"
         '';
       };
     };
