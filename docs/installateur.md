@@ -27,6 +27,51 @@ sauvegardé la zone du bootloader vendor.
 Ce n'est donc pas un installeur générique : c'est une image de maintenance
 qui applique une cible connue sur une disposition eMMC connue.
 
+
+## Premier banc réel — 30/10, N5, eMMC 14,6 Gio
+
+Déroulé complet sur la carte, console série 115200, SD = image installateur,
+cible = eMMC. Données de l'eMMC déclarées jetables par l'opérateur (Ubuntu 20.04
+« arm-64 » avec `/home/meh`, 2,9 Gio).
+
+| phase | résultat |
+|---|---|
+| p0 | **OK** — 9 fichiers, 165 458 265 o, `root=LABEL=N5_INSTALL`, `init` non vide |
+| p3 | **OK** — `start(p1)` = 1368064 (seuil atteint), cible `EXECUTABLE` dans le store, 1566 Mio libres |
+| p4 | **OK** — `nixos-install` a copié `…-nixos-system-magicsee-n5-…`, « installation finished! », avertissement chargeur attendu |
+| p5 | **OK** — p1 = `NIXOS_BOOT` avec 9 fichiers et `init=xbxmvl4n…` ; p2 = `NIXOS_SD`, `init` exécutable, 601 entrées de store |
+| p6 | **ÉCHEC** — voir ci-dessous |
+
+### Pourquoi la eMMC ne démarre pas
+
+Deux causes distinctes, mesurées depuis le prompt U-Boot vendor
+(`gxl_p212_v1#`) :
+
+1. **Le nom du script d'amorçage.** L'environnement vendor fait
+   `start_emmc_autoscript = fatload mmc 1 1020000 emmc_autoscript && autoscr 1020000`,
+   alors que la charge utile ne fournit que `s905_autoscript` (le nom attendu côté
+   SD : `fatload mmc 0 1020000 s905_autoscript`). Sans `emmc_autoscript`, il tombe
+   sur `storeboot` (Android, effacé) puis rend la main au prompt.
+2. **Le chargeur ne sait pas démarrer l'image.** En lui donnant le fichier existant
+   à la main, il lit bien `uImage.multi` (63 527 012 o, taille **identique** au
+   store, `mkimage -l` valide), puis :
+   `Verifying Checksum ... Bad Data CRC` / `ERROR: can't get kernel image!`.
+   Le même fichier démarre depuis la SD : c'est le chargeur de la eMMC qui est en
+   cause, pas l'image.
+
+### Ce que l'installateur doit faire en plus
+
+`/etc/n5/install.sh` ne touche pas à la zone d'amorçage (les 668 MiB vendor sont
+sauvegardés, et c'est volontaire). Or c'est précisément là que vit le U-Boot
+capable de démarrer nos images. Il manque :
+
+- écrire le binaire d'amorçage de l'image SD (les premiers secteurs) dans la eMMC,
+  après sauvegarde du préfixe ;
+- déposer un `emmc_autoscript` sur p1, identique à `s905_autoscript` (le script
+  gère déjà les deux médias : il tente `mmc 0:1` puis retombe sur `mmc 1:1`) ;
+- vérifier, après copie, que la taille des fichiers de p1 correspond au store —
+  un `cp` tronqué sur FAT ne se voit pas autrement qu'à l'erreur de CRC au boot.
+
 ## 1. Ce que fait l'image, étape par étape
 
 ### 1.1 D'où elle vient

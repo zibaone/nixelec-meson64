@@ -180,7 +180,12 @@ uart_init() {
   [ -n "$UART" ] || die "aucune console : passer --uart /dev/ttyUSB1 ou --ssh"
   [ -c "$UART" ] || die "pas un périphérique caractère : $UART"
   command -v stty >/dev/null || die "stty introuvable"
-  stty -F "$UART" "$BAUD" cs8 -cstopb -parenb -crtscts -ixon -ixoff raw -echo \
+  # `clocal` est indispensable : un adaptateur USB-série ne présente pas de
+  # DCD, et sans CLOCAL le noyau considère la ligne raccrochée — les lectures
+  # passent quand même (on voyait les traces de boot) mais **les écritures sont
+  # jetées**, donc aucune commande n'atteint le shell. Symptôme mesuré : les
+  # phases p3/p4 rendaient « illisible » alors que la carte répondait.
+  stty -F "$UART" "$BAUD" cs8 -cstopb -parenb -crtscts -ixon -ixoff clocal raw -echo \
     || die "stty a échoué sur $UART (droits ? câble ?)"
   exec 9<>"$UART"
   UART_FD_OPEN=1
@@ -189,15 +194,21 @@ uart_init() {
 
 uart_run() {  # uart_run "commande" -> sortie ; 1 si timeout
   local cmd=$1 line deadline out="" rc=1
-  local marker='; echo "@@BENCH-$RANDOM-$RANDOM@@"'
+  local token="@@BENCH-$RANDOM-$RANDOM@@"
+  local marker="; echo \"$token\""
   printf '\r%s%s\r' "$cmd" "$marker" >&9
   deadline=$(( SECONDS + TIMEOUT_CMD ))
   while (( SECONDS <= deadline )); do
     if IFS= read -r -t 1 -u 9 line; then
-      line=${line%$'\r'}
-      if [[ $line =~ ^@@BENCH-[0-9]+-[0-9]+@@$ ]]; then rc=0; break; fi
-      # la console renvoie la ligne tapée : ne pas la compter comme sortie
-      [ "$line" = "$cmd$marker" ] && continue
+      # La console rend « \r\r\n » : retirer *tous* les \r, sinon les
+      # comparaisons échouent et la sortie garde un caractère parasite
+      # (mesuré : « racine inattendue (/dev/mmcblk0p2) » alors que la valeur
+      # était la bonne).
+      line=${line//$'\r'/}
+      if [[ $line == "$token" ]]; then rc=0; break; fi
+      # La ligne tapée revient préfixée du prompt : la reconnaître par la
+      # présence du marqueur, pas par une égalité exacte.
+      [[ $line == *"$token"* ]] && continue
       out+="$line"$'\n'
     fi
   done
