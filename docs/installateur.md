@@ -84,6 +84,19 @@ Le doute sur `/etc/hostname` est levé : lu depuis l'installateur il rendait
 résolu dans l'espace de noms de l'installateur. Au démarrage, la carte porte bien
 `magicsee-n5`.
 
+### Piste sur l'origine de la corruption
+
+L'alimentation de la N5 a un **faux contact** (constaté le 30/10 : la carte tombe
+sans raison, lien réseau et console muets). Une chute de tension pendant une
+écriture sur la eMMC suffit à faire écrire un secteur avec un contenu faux, sans
+le moindre message : ni `dmesg`, ni ECC remontée. C'est la meilleure explication
+des 31 octets divergents observés dans `uImage.multi` — et cela justifie la
+vérification après copie bien au-delà de ce cas précis.
+
+Conséquence pratique : **ne pas conclure d'un échec de boot tant que
+l'alimentation n'est pas fiable**. L'installation, elle, reste vérifiable après
+coup (`cmp` store ↔ p1).
+
 ### Correctifs portés dans l'installateur
 
 - `n5-boot.nix` publie `emmc_autoscript` en plus de `s905_autoscript` — même
