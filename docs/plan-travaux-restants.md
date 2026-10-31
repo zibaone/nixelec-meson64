@@ -5,6 +5,10 @@
 > d'amorçage sont ajoutées en C5–C8. Les lignes B, C et D du 28/10 restent
 > valables sauf mention contraire.
 
+> **Exécution** : le découpage en worktrees, les critères d'acceptation de C5–C8
+> et l'ordre de la prochaine session sont dans `HavenOS/HANDOFF.md`, section
+> « Prochaine session — vague parallèle ».
+
 > Ce qui est qualifié, ce qui manque, dans quel ordre, et ce qui peut être mené
 > en parallèle sans se battre pour la machine. Les mesures et les causes sont
 > dans `docs/diagnostics/` ; cette note ne fait que planifier.
