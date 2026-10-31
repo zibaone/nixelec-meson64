@@ -231,6 +231,10 @@ ajoute ~10 MiB, indépendamment. Rien de tout cela n'est du code mappé : c'est 
 allouée, très probablement des textures d'illustration (les `fanart.jpg` des
 paquets pèsent 0,5–0,8 Mo, soit ~8 Mo en RGBA une fois décodés).
 
+**Règles et protocole côté addons** : `tv-addons/docs/empreinte-memoire.md`
+(règles d'illustration, rien au chargement, protocole d'attribution un addon à la
+fois), commit `357a2c8`.
+
 **Qui a la main** : les cinq greffons maison (`xtream`, `orange.tv`, `pluto.tv`,
 `rakuten.tv`, `samsung.tvplus`) et `script.module.tv_common` sont dans le
 monorepo privé `tv-addons` — code et ressources à nous. `vstream`,
