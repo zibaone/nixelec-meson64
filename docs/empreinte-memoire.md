@@ -102,3 +102,14 @@ charge utile avec `video=HDMI-A-1:1280x720@60` (voir C8 de
 3. **L4 (audio)** : mesurer `pipewire` + `wireplumber` sur une session réelle avant
    de décider ; 31 Mo ne suffisent pas à faire passer le budget, mais ils comptent
    si L2 n'en rend pas assez.
+
+Les trois états se rejouent avec `scripts/mesure-memoire.sh` (poste → carte en
+SSH), qui encode les pièges ci-dessus : chauffe de 60 s avant l'état inactif,
+`Pss` lu sur `kodi.bin` et jamais sur `MainPID`, `CmaTotal` lu dans
+`/proc/meminfo` et non déduit de `MemTotal`, et réparation de la pile audio
+après l'arrêt du kiosque (le trou de plus de 10 s de l'item 49 est inévitable
+dans l'état « sans Kodi »).
+
+```sh
+scripts/mesure-memoire.sh --host root@<ip> --etat tous --sortie memoire.csv
+```
