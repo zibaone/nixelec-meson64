@@ -114,7 +114,7 @@ colonnes sont comparables, aucune source en jeu) : CMA au repos
 **42,0 → 19,9 MiB** (−22,1), `Pss` **319,6 → 300,0 MiB** (−19,5). Soit
 **41,7 MiB** gagnés.
 
-### Verdict provisoire sur la cible 1 Gio (D3)
+### Verdict sur la cible 1 Gio (D3)
 
 Sur cette carte, 261 356 Ko échappent à `MemTotal` : 131 072 de CMA plus 130 284
 de noyau et réservations. Sur une carte de 1 Gio avec `cma=128M`, `MemTotal`
@@ -144,6 +144,23 @@ La mire de référence est un H.264 High@4.0 1920x1080 25 i/s de 30 s, généré
 -profile:v high -pix_fmt yuv420p -b:v 4M -g 50 -an`, puis posée dans le store de
 la carte (`nix store add-file` + `nix copy`) et lancée par `Player.Open`. Même
 source pour toutes les mesures futures, indépendante de la playlist.
+
+### Pourquoi L3 ne peut pas combler les 37,3 MiB
+
+Le coût de la lecture se répartit en deux postes : ~90 MiB d'anonyme en plus dans
+Kodi, et ~80 MiB de CMA — mais **la CMA est hors `MemTotal`**, elle ne pèse donc
+pas sur le budget 1 Gio. Tout le déficit est dans l'anonyme de Kodi.
+
+Les leviers configurables sont d'un autre ordre de grandeur : le tampon
+`inputstream.adaptive` (~15 Mo par défaut) et le cache du démultiplexeur
+(~8 Mo). Même ramenés à zéro, ils ne rendent pas 37 MiB. Le reste est le
+working set de Kodi (textures du skin, tampons de rendu, tas Python).
+
+Conclusion : **L3 ne tranche pas D3, il l'entérine** — sur ce stack, 1 Gio tient
+avec des sources 720p (+84,2 MiB de marge) et ne tient pas avec des sources
+1080p (−37,3 MiB), et il n'existe pas de réglage qui comble l'écart. Les sorties
+réalistes sont : n'accepter que du 720p sur un SKU 1 Gio, changer de lecteur, ou
+prendre une carte à plus de RAM.
 
 ### Attribution du pied, mesurée le 31/10 à l'état inactif (1080p, production)
 
