@@ -1,4 +1,9 @@
-# Travaux restants — état au 2026-10-28
+# Travaux restants — état au 2026-10-31
+
+> **Révision 2026-10-31** : l'installation sur eMMC est faite et le boîtier
+> démarre seul (voir `boards/magicsee-n5.md`) ; quatre dettes de la chaîne
+> d'amorçage sont ajoutées en C5–C8. Les lignes B, C et D du 28/10 restent
+> valables sauf mention contraire.
 
 > Ce qui est qualifié, ce qui manque, dans quel ordre, et ce qui peut être mené
 > en parallèle sans se battre pour la machine. Les mesures et les causes sont
@@ -56,6 +61,10 @@
 | C2 | couche kiosque neutre — **plan établi, 5 commits sur 4 dépôts** : C1 créer `nixelec-kiosk` (copie verbatim + le XML CEC qui voyage avec le module), C2 ré-export depuis `nixelec-sunxi64` (aucune rupture), C3 `HavenOS` (import + `wifi-uwe5622` conditionnel + **réinjecter les overlays `v4l2request`**, sinon −149 Mio de trim et chemins de store différents), C4 `nixelec-meson64` (supprimer le doublon en conservant `vdecFirmware`, `hardware.graphics`, `video=`, getty), C5 hôte N5 dans HavenOS — **fait le 2026-10-29** : `nixelec-kiosk` créé, cartes kiosk-free, hôte N5 dans la flotte ; l'input `nixelec-kiosk` a été retiré depuis (le kiosque n'est consommé que par HavenOS) | 1 j | fait (`7fbb29a`) |
 | C3 | routage MPEG-2 vers le logiciel dans Kodi (le VPU est plus lent) | 1 h de config | papier |
 | C4 | `docs/branches.md` et les statuts de README à réaligner sur les mesures | 30 min | papier |
+| C5 | **charge utile : `mmc 0` essayé avant `mmc 1`** — le même script est posé sous `s905_autoscript` (mmc 0 = SD) et `emmc_autoscript` (mmc 1 = eMMC), donc chaque copie cherche la SD d'abord. Mesuré le 2026-10-31 : eMMC démarrée avec la SD insérée, c'est la charge utile de la SD qui gagne — et `root=LABEL=NIXOS_SD` devient ambigu, les deux médias portant le même libellé (`blkid`). Correctif : deux scripts épinglés à leur média | 1 h + rebuild | build |
+| C6 | **`uImage.multi` encore produit** (63,5 Mo) alors que l'autoscript ne s'en sert plus, et c'est exactement le fichier qui dépasse le seuil de lecture FAT cassé (> 38 Mo). Le retirer de `mkBootFiles` supprime un piège et 63 Mo de poids mort | 30 min | papier |
+| C7 | **image d'installateur à 4,46 Gio** : elle embarque la fermeture cible (2,50 Gio) pour installer hors ligne et ne tient pas sur une carte de 3,8 Gio. Sortie retenue : image « bootstrap » minimale (SSH + nix, ~1,3 Gio) qui prépare la eMMC et laisse `nix copy` + `switch --target-host` faire le reste | 1 j | build |
+| C8 | **charge utile épinglée** : un `nixos-rebuild switch` réussit mais le boot repart sur l'ancien `init=`. Il faut regénérer `havenos-n5-boot-payload`, le copier sur `NIXOS_BOOT` et rebooter. Une commande `havenos-cli` dédiée éviterait l'oubli | 2 h | code |
 
 ### D. Risques de fond
 
@@ -81,7 +90,7 @@ B2 (préparer la keymap, en attente de l'identification de la télécommande) ·
 C2 (migration vers HavenOS : 3 dépôts, commits séparés). C'est le prérequis du reste : inutile de qualifier un boîtier sur une image qui va changer de dépôt.
 
 **Vague 3 — après l'unification HavenOS**
-B6 (thermique ~40 min ; suspend : à clore par une mesure négative assumée) · B4 (CEC) · installation eMMC · C1/C3 (finitions).
+B6 (thermique ~40 min ; suspend : à clore par une mesure négative assumée) · B4 (CEC) · C1/C3 (finitions) · C5–C8 (chaîne d'amorçage). L'**installation eMMC** de cette vague est faite (2026-10-31) : le boîtier démarre seul depuis sa eMMC, sans carte SD.
 
 ## 5. Découpage en subagents
 
