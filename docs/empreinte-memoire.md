@@ -110,8 +110,9 @@ Pour comparaison, la référence 1080p du même protocole : CMA 137 Mo en lectur
 `Pss` 327 120 Ko au repos, 858 Mo occupés en lecture.
 
 **Effet propre du mode d'affichage, mesuré sans décodeur actif** (les deux
-colonnes sont comparables, aucune source en jeu) : CMA au repos **43,0 → 19,9 Mo**
-(−23,1), `Pss` **327 240 → 307 240 Ko** (−20,0). Soit **43 Mo** gagnés.
+colonnes sont comparables, aucune source en jeu) : CMA au repos
+**42,0 → 19,9 MiB** (−22,1), `Pss` **319,6 → 300,0 MiB** (−19,5). Soit
+**41,7 MiB** gagnés.
 
 ### Verdict provisoire sur la cible 1 Gio (D3)
 
@@ -121,14 +122,13 @@ vaudrait donc ≈ **787 220 Ko (768 Mio)**.
 
 | scénario sur 1 Gio | occupé | marge |
 |---|---|---|
-| lecture d'une source **720p** | 701 Mo | **+67 Mo** — passe |
-| lecture d'une source **1080p** | 825 Mo | **−57 Mo** — ne passe pas |
+| lecture d'une source **720p** | 684,6 MiB | **+84,2 MiB** — passe |
+| lecture d'une source **1080p** | 806,1 MiB | **−37,3 MiB** — ne passe pas |
 
 Conclusion honnête : **1 Gio tient si le contenu est en 720p, pas s'il est en
-1080p**, à moins de récupérer ~60 Mo sur les tampons du lecteur — c'est
-exactement ce que L3 propose de mesurer. La cible « 1 Gio » n'est donc pas
-tranchée par L2 seule : elle dépend de la définition des sources, ce que le
-document initial ne distinguait pas.
+1080p**, à moins de récupérer ~37 MiB dans le pied de Kodi. La cible « 1 Gio »
+n'est donc pas tranchée par L2 seule : elle dépend de la définition des sources,
+ce que le document initial ne distinguait pas.
 
 Deux pièges payés pendant cette mesure :
 
@@ -144,6 +144,29 @@ La mire de référence est un H.264 High@4.0 1920x1080 25 i/s de 30 s, généré
 -profile:v high -pix_fmt yuv420p -b:v 4M -g 50 -an`, puis posée dans le store de
 la carte (`nix store add-file` + `nix copy`) et lancée par `Player.Open`. Même
 source pour toutes les mesures futures, indépendante de la playlist.
+
+### Attribution du pied, mesurée le 31/10 à l'état inactif (1080p, production)
+
+| poste | mesure |
+|---|---|
+| `kodi.bin` | **295,3 MiB** de `Pss` |
+| tous les services système réunis | **~100 MiB** de `Pss` (le plus gros : wireplumber 9,4, pipewire 6,9, systemd 6,7, wpa_supplicant 6,1, resolved 6,1, udevd 5,7) |
+| total `Pss` tous processus | **395 MiB** |
+| `Slab` | 69,3 MiB dont 44,2 non récupérables |
+| `Shmem` | 31,2 MiB |
+| occupé (`MemTotal − MemAvailable`) | 587 MiB |
+
+Deux conséquences pour D3 : le pied système n'est **pas** le gisement (100 MiB de
+services, dont ~29 MiB d'audio — la cible L4), et les 37,3 MiB manquants sont
+dans le **pied de Kodi lui-même**. Le tampon `inputstream.adaptive` tourne aux
+valeurs par défaut (~15 Mo) : il ne peut pas rendre 37 MiB à lui seul. Le levier
+plausible est ailleurs dans Kodi — addons chargés, textures du skin — et se
+mesure par ablation.
+
+**Correction** : la première publication de ce document annonçait « −57 Mo ». Le
+calcul avait mélangé Mo décimaux et Mio. Les valeurs ci-dessus sont en Mio,
+recalculées depuis les KiB de `/proc/meminfo` ; le déficit réel est de
+**37,3 MiB**.
 
 ## Prochaines mesures, par ordre de valeur
 
