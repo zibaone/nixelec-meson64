@@ -255,15 +255,62 @@ réécriture. `pvr.iptvsimple` est un paquet nixpkgs.
 reproductibilité (mesuré : 300,4 et 299,9 MiB). Activer un greffon à la fois :
 c'est la seule façon d'attribuer, le lot ne le permet pas.
 
+**Attribution faite le 31/10 au soir** (51 addons moins un seul, deux runs,
+moyenne) :
+
+| greffon retiré | `Pss` moyen | coût | écart entre runs |
+|---|---|---|---|
+| `plugin.video.xtream` | 287 690 Ko | 18,7 Mio | 1,9 Mio |
+| `plugin.video.orange.tv` | 287 016 Ko | 19,3 Mio | 5,2 Mio |
+| `plugin.video.pluto.tv` | 285 796 Ko | 20,5 Mio | 3,8 Mio |
+| `plugin.video.rakuten.tv` | 284 462 Ko | 21,8 Mio | 3,4 Mio |
+| `plugin.video.samsung.tvplus` | 288 072 Ko | 18,3 Mio | 1,0 Mio |
+| `plugin.video.sendtokodi` | 302 718 Ko | **4,0 Mio** | 4,4 Mio |
+
+Les cinq greffons maison coûtent tous **18 à 22 Mio**, sans outlier : il n'y a
+pas un greffon coupable, c'est le **nombre** qui coûte. `sendtokodi`, dont le
+paquet n'embarque pas de `resources/media/`, coûte **4 Mio** — un ordre de
+grandeur en dessous. C'est un argument fort pour l'hypothèse des fanarts
+décodés en textures, pas encore une preuve : celle-ci demande de retirer les
+images d'un greffon et de remesurer.
+
+Retirer les cinq greffons maison rend donc **102,6 Mio**, soit plus de deux fois
+les 37,3 Mio manquants en 1080p sur 1 Gio — sans toucher au mode d'affichage.
+Restauration après mesure : `kodi-addons` puis `kodi-gbm`, 51 addons, 0 unité
+en échec, `Pss` revenu à 307 066 Ko contre 306 810 à la référence.
+
 **Critère de réussite** : 1 Gio défendable en 1080p, c'est-à-dire `MemTotal`
 768,8 MiB avec **plus de 100 MiB de marge** en lecture. La liste d'addons
 minimale est à arbitrer avec l'usage réel ; elle va dans le sens d'un système
 déterministe (moins d'état, moins de réseau, démarrage plus court).
 
-**À caractériser avant de promettre quoi que ce soit** : l'anonyme de Kodi passe
-de 59 à 156 MiB avec l'usage (relevés 755 MiB à froid contre 806 MiB après une
-heure). Plateau ou dérive, la réponse change le verdict 1 Gio — échantillonner
-`Pss_Anon` sur 2 h avant de conclure.
+**Caractérisé le 31/10 au soir — plateau côté Kodi, fuite côté noyau.**
+Protocole : redémarrage propre, 60 s de chauffe, 15 min au repos puis 45 min de
+mire 1080p en boucle, un point toutes les 5 min (`mesure-memoire.sh --intervalle`,
+`inactive_anon_kb`).
+
+| phase | `Pss` kodi.bin | `Pss_Anon` | `Slab` | `MemAvailable` |
+|---|---|---|---|---|
+| repos, 15 min | 307 438 → 300 545 Ko | 204 072 → 197 612 | 82 240 → 82 852 | 1 228 → 1 233 Mo |
+| lecture, 45 min | 338 089 → 344 237 (oscille) | 230 440 → 238 048 (oscille) | **86 748 → 414 944** | 1 069 → 726 Mo |
+
+`Pss_Anon` **ne dérive pas** : +30 Mo au premier passage en lecture, puis une
+oscillation entre 226 et 254 Mo au rythme des ré-ouvertures. `Inactive(anon)`
+reste à **0** dans les deux phases — toute l'anonyme est active.
+
+Ce qui dérive est `Slab`, dont `SUnreclaim` atteint 416 Mo : **irrécupérable**,
+donc pas un cache. Mécanisme mesuré juste après : à l'arrêt le compteur est plat
+(+92 Ko en 45 s) et trois lectures isolées coûtent **+8 184, +8 244 et
++8 552 Ko** — reproductible à 5 %. C'est **par session de lecture**, pas par
+minute : la boucle de 30 s en ouvrait une environ par minute, ce qui donnait la
+pente linéaire de 8 Mo/min.
+
+Conséquence pour la cible 1 Gio : le pied de Kodi est stable, mais chaque
+lecture coûte ~8,2 Mo de noyau. Dix lectures = 82 Mo, soit plus que ce que
+rendent les addons. Aucun réglage de tampon ni de liste d'addons n'atteint ce
+poste-là. **Non attribué** : `/proc/slabinfo` ne totalise que ~70 Mo quand
+`/proc/meminfo` en annonce 447 sur ce noyau (7.0.14), et aucune cache SLUB ne
+croît ; la suite est `/sys/kernel/slab/*/objects`, pas une conclusion.
 
 ## Prochaines mesures, par ordre de valeur
 
