@@ -27,6 +27,7 @@ ETAT="tous"
 DUREE=30
 ATTENTE=60
 SORTIE=""
+SOURCE=""
 
 usage() {
   cat <<'EOF'
@@ -37,12 +38,17 @@ usage : scripts/mesure-memoire.sh --host root@<ip> [options]
   --duree <s>       durée d'échantillonnage de l'état lecture (défaut : 30)
   --attente <s>     chauffe avant l'état inactif (défaut : 60, plancher : 60)
   --sortie <fichier> CSV appendé (sinon stdout seulement)
+  --source <texte>  ce qui joue pendant l'état `lecture`, tel que déclaré par
+                    l'opérateur (« mire 1080p », « replay 720p »…), sans virgule.
+                    La résolution ne se lit pas sur /dev/video0 : sur ce pilote
+                    stateless le format est figé au premier S_FMT et n'est pas
+                    renégocié au changement de flux — c'est la CMA qui la trahit.
   -h, --help        cette aide
 
 Sortie : une ligne CSV par état, entête incluse au premier passage.
 Colonnes : etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,
            slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,
-           vdec_wxh (résolution décodée, vide hors lecture)
+           source (ce qui jouait, tel que déclaré avec --source)
 EOF
 }
 
@@ -56,6 +62,7 @@ while [ $# -gt 0 ]; do
     --duree) DUREE=${2:?--duree attend une valeur}; shift 2 ;;
     --attente) ATTENTE=${2:?--attente attend une valeur}; shift 2 ;;
     --sortie) SORTIE=${2:?--sortie attend une valeur}; shift 2 ;;
+    --source) SOURCE=${2:?--source attend une valeur}; shift 2 ;;
     -h | --help) usage; exit 0 ;;
     *) die "option inconnue : $1" ;;
   esac
@@ -70,9 +77,12 @@ SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
 # Lecture d'un état : une seule session SSH, tout est calculé sur la carte.
 releve() {
   local etat=$1
-  "${SSH[@]}" bash -s -- "$etat" <<'EOS'
+  # Arguments par l'environnement, pas par la ligne de commande : ssh recolle
+  # ses arguments en une seule chaîne et « mire 1080p » arriverait en deux mots.
+  "${SSH[@]}" "ME_ETAT=$(printf '%q' "$etat") ME_SRC=$(printf '%q' "$SOURCE") bash -s" <<'EOS'
 set -u
-etat=$1
+etat=${ME_ETAT:?}
+src=${ME_SRC:-}
 
 mem() { awk -v k="$1" '$1 == k":" {print $2}' /proc/meminfo; }
 
@@ -89,12 +99,6 @@ for p in $(pgrep -x kodi.bin || true); do
   pss_file=$((pss_file + $(awk '/^Pss_File:/ {print $2}' "/proc/$p/smaps_rollup")))
 done
 
-# Résolution réellement décodée, lue sur le périphérique de capture du VPU et
-# non sur l'interface : deux mesures de `CmaFree` ne sont comparables que si la
-# source a la même définition (les tampons suivent la source, pas l'affichage).
-# Vide quand rien n'est décodé (le pilote peut répondre pendant la lecture).
-vdec=$(v4l2-ctl -d /dev/video0 --get-fmt-video 2>/dev/null | awk -F: '/Width\/Height/ {gsub(/[ \t]/,"",$2); print $2}')
-
 printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
   "$etat" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -107,7 +111,7 @@ printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
   "$pss_anon" \
   "$pss_file" \
   "$nb" \
-  "${vdec:-}"
+  "$src"
 EOS
 }
 
@@ -146,7 +150,7 @@ demarrer_kodi() {
 }
 
 entete() {
-  printf '%s\n' "etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,vdec_wxh"
+  printf '%s\n' "etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,source"
 }
 
 emettre() {
