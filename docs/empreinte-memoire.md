@@ -151,10 +151,9 @@ Le coût de la lecture se répartit en deux postes : ~90 MiB d'anonyme en plus d
 Kodi, et ~80 MiB de CMA — mais **la CMA est hors `MemTotal`**, elle ne pèse donc
 pas sur le budget 1 Gio. Tout le déficit est dans l'anonyme de Kodi.
 
-Les leviers configurables sont d'un autre ordre de grandeur : le tampon
-`inputstream.adaptive` (~15 Mo par défaut) et le cache du démultiplexeur
-(~8 Mo). Même ramenés à zéro, ils ne rendent pas 37 MiB. Le reste est le
-working set de Kodi (textures du skin, tampons de rendu, tas Python).
+Les leviers « tampon » sont sans effet mesurable ici : `filecache.memorysize`
+passé de 128 à 16 ne change rien sur un fichier local (**755,1 → 752,8 MiB**,
+écart dans le bruit). La mémoire est ailleurs.
 
 Conclusion : **L3 ne tranche pas D3, il l'entérine** — sur ce stack, 1 Gio tient
 avec des sources 720p (+84,2 MiB de marge) et ne tient pas avec des sources
@@ -184,6 +183,44 @@ mesure par ablation.
 calcul avait mélangé Mo décimaux et Mio. Les valeurs ci-dessus sont en Mio,
 recalculées depuis les KiB de `/proc/meminfo` ; le déficit réel est de
 **37,3 MiB**.
+
+### Où sont réellement les 130 MiB : les addons activés
+
+Bisection mesurée le 31/10, un redémarrage par configuration, 60 s de chauffe.
+Reproductibilité contrôlée : deux redémarrages consécutifs de la même
+configuration donnent **300,4** et **299,9 MiB** — l'écart entre configurations
+est donc réel, pas du bruit.
+
+| addons activés | `Pss` kodi.bin | dont anonyme |
+|---|---|---|
+| 51 (production) | **300 MiB** | 199 MiB |
+| 43 (les 8 greffons coupés) | **160 MiB** | 62 MiB |
+| 44 (+ `service.iptv.manager` seul) | 170 MiB | 71 MiB |
+| 45 (+ `plugin.video.vstream` seul) | 198 MiB | 98 MiB |
+
+Les **sept greffons VOD** (`vstream`, `xtream`, `orange.tv`, `pluto.tv`,
+`rakuten.tv`, `samsung.tvplus`, `sendtokodi`) pèsent **~130 MiB**, en mémoire
+**anonyme** — des textures d'illustration chargées, pas du code. Le gestionnaire
+IPTV en coûte ~10, `vstream` seul ~29.
+
+Conséquence pour D3 : le levier n'est ni les services système (95 MiB au total,
+dont 19 sockets à coût nul — `nix-daemon` en est, 0 MiB ; couper SSH, DNS et NTP
+ne rend qu'une vingtaine de MiB), ni une recompilation de Kodi (voir ci-dessous),
+mais **la liste des addons activés**. Couper les greffons VOD inutilisés rend
+jusqu'à 130 MiB, soit largement les 37,3 MiB manquants.
+
+### Ce qu'un Kodi recompilé ne rendrait pas
+
+Options réellement passées au build (`nix derivation show`) :
+`ENABLE_OPTICAL=ON` (libdvdnav/libdvdread/libdvdcss) et `ENABLE_VDPAU=ON`
+(NVIDIA). Aucune de ces bibliothèques n'apparaît dans le `Pss_File` de Kodi :
+elles ne sont **jamais mappées** quand la fonction n'est pas utilisée. Les
+désactiver au build ne rend **aucune RAM** — seulement de la taille d'image.
+
+Le code mappé, lui, est : `kodi.bin` 26 MiB, `libLLVM` 29,2 et `libgallium` 11,4
+(compilateur et pilote **lima/mesa**, indispensables au rendu Mali450),
+`libpython` 6, `libavcodec` 3,1. Élaguer les options de Kodi peut retirer
+quelques MiB de code, pas 37, et casserait les fonctions qui font la boîte.
 
 ## Prochaines mesures, par ordre de valeur
 
