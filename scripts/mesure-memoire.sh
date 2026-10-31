@@ -28,6 +28,7 @@ DUREE=30
 ATTENTE=60
 SORTIE=""
 SOURCE=""
+INTERVALLE=0
 
 usage() {
   cat <<'EOF'
@@ -43,12 +44,20 @@ usage : scripts/mesure-memoire.sh --host root@<ip> [options]
                     La résolution ne se lit pas sur /dev/video0 : sur ce pilote
                     stateless le format est figé au premier S_FMT et n'est pas
                     renégocié au changement de flux — c'est la CMA qui la trahit.
+  --intervalle <s>  échantillonner toutes les <s> secondes pendant --duree, au
+                    lieu de deux relevés (défaut : 0 = comportement historique).
+                    C'est ce qui rend une dérive lisible : une suite de points à
+                    état constant, pas deux mesures isolées.
   -h, --help        cette aide
 
 Sortie : une ligne CSV par état, entête incluse au premier passage.
 Colonnes : etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,
-           slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,
-           source (ce qui jouait, tel que déclaré avec --source)
+           slab_kb,inactive_anon_kb,kodi_pss_kb,kodi_pss_anon_kb,
+           kodi_pss_file_kb,kodi_nb_proc,source (ce qui jouait, avec --source)
+
+`inactive_anon_kb` est `Inactive(anon)` de /proc/meminfo : c'est lui qui porte
+la dérive d'un service qui n'a pas de fuite franche — la mémoire anonyme que le
+noyau a déjà poussée hors du jeu de travail actif.
 EOF
 }
 
@@ -63,6 +72,7 @@ while [ $# -gt 0 ]; do
     --attente) ATTENTE=${2:?--attente attend une valeur}; shift 2 ;;
     --sortie) SORTIE=${2:?--sortie attend une valeur}; shift 2 ;;
     --source) SOURCE=${2:?--source attend une valeur}; shift 2 ;;
+    --intervalle) INTERVALLE=${2:?--intervalle attend une valeur}; shift 2 ;;
     -h | --help) usage; exit 0 ;;
     *) die "option inconnue : $1" ;;
   esac
@@ -71,6 +81,8 @@ done
 [ -n "$HOST" ] || { usage >&2; exit 2; }
 case $ETAT in sans-kodi | inactif | lecture | tous) ;; *) die "--etat invalide : $ETAT" ;; esac
 [ "$ATTENTE" -ge 60 ] || ATTENTE=60
+case $INTERVALLE in '' | *[!0-9]*) die "--intervalle invalide : $INTERVALLE" ;; esac
+case $DUREE in '' | *[!0-9]*) die "--duree invalide : $DUREE" ;; esac
 
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST")
 
@@ -99,7 +111,7 @@ for p in $(pgrep -x kodi.bin || true); do
   pss_file=$((pss_file + $(awk '/^Pss_File:/ {print $2}' "/proc/$p/smaps_rollup")))
 done
 
-printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
   "$etat" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   "$(mem MemTotal)" \
@@ -107,6 +119,7 @@ printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
   "$(mem CmaTotal)" \
   "$(mem CmaFree)" \
   "$(mem Slab)" \
+  "$(mem 'Inactive(anon)')" \
   "$pss" \
   "$pss_anon" \
   "$pss_file" \
@@ -150,7 +163,7 @@ demarrer_kodi() {
 }
 
 entete() {
-  printf '%s\n' "etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,source"
+  printf '%s\n' "etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,slab_kb,inactive_anon_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,source"
 }
 
 emettre() {
@@ -158,6 +171,22 @@ emettre() {
   ligne=$(releve "$1")
   printf '%s\n' "$ligne"
   [ -n "$SORTIE" ] && printf '%s\n' "$ligne" >>"$SORTIE"
+}
+
+# Échantillonnage régulier : un point toutes les INTERVALLE secondes pendant
+# DUREE secondes, à état constant. Deux points isolés ne disent pas si une
+# valeur monte (dérive) ou oscille (bruit) — c'est précisément la question
+# laissée ouverte par docs/empreinte-memoire.md §« À caractériser ».
+echantillonner() {
+  local etat=$1 t=0 pas
+  emettre "$etat"
+  while [ "$t" -lt "$DUREE" ]; do
+    pas=$((DUREE - t))
+    [ "$pas" -gt "$INTERVALLE" ] && pas=$INTERVALLE
+    sleep "$pas"
+    t=$((t + pas))
+    emettre "$etat"
+  done
 }
 
 : >/dev/null
@@ -172,13 +201,22 @@ case $ETAT in
   inactif)
     note "attente de ${ATTENTE}s (Pss faux avant 60 s)"
     sleep "$ATTENTE"
-    emettre inactif
+    if [ "$INTERVALLE" -gt 0 ]; then
+      note "échantillonnage de ${DUREE}s, un point toutes les ${INTERVALLE}s, à l'arrêt"
+      echantillonner inactif
+    else
+      emettre inactif
+    fi
     ;;
   lecture)
     note "échantillonnage de ${DUREE}s : lancer la lecture maintenant"
-    emettre lecture
-    sleep "$DUREE"
-    emettre lecture
+    if [ "$INTERVALLE" -gt 0 ]; then
+      echantillonner lecture
+    else
+      emettre lecture
+      sleep "$DUREE"
+      emettre lecture
+    fi
     ;;
   tous)
     arreter_kodi
