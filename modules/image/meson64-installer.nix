@@ -99,8 +99,10 @@ let
     #    l'inode restent référencées, la comparaison lit le cache d'écriture et
     #    valide une copie fausse. Il faut démonter puis remonter en lecture seule.
     #  - l'écriture doit être poussée au média (`blockdev --flushbufs`) avant de
-    #    conclure, sinon un `uImage.multi` — dernier fichier écrit — peut rester
-    #    absent du support alors que tout semble conforme.
+    #    conclure : le dernier fichier copié peut n'exister encore que dans le
+    #    cache du noyau ; une coupure à cet instant laisse la charge utile
+    #    incomplète alors que `cp` et `sync` viennent de rendre la main sans
+    #    erreur.
     copy_payload() {
       local f b
       for f in "$target_boot"/*; do
