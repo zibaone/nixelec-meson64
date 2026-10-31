@@ -222,6 +222,45 @@ Le code mappé, lui, est : `kodi.bin` 26 MiB, `libLLVM` 29,2 et `libgallium` 11,
 `libpython` 6, `libavcodec` 3,1. Élaguer les options de Kodi peut retirer
 quelques MiB de code, pas 37, et casserait les fonctions qui font la boîte.
 
+## Chantier suivant : empreinte des addons (à ouvrir, mesuré le 31/10)
+
+**Acquis** : sept greffons VOD coûtent ~130 MiB d'anonyme à l'activation, dont
+`vstream` 29 et `service.iptv.manager` 10 ; le reste se répartit sur
+`xtream`, `orange.tv`, `pluto.tv`, `rakuten.tv`, `samsung.tvplus`,
+`sendtokodi`. Rien de tout cela n'est du code mappé : c'est de la mémoire
+allouée, très probablement des textures d'illustration (les `fanart.jpg` des
+paquets pèsent 0,5–0,8 Mo, soit ~8 Mo en RGBA une fois décodés).
+
+**Qui a la main** : les cinq greffons maison (`xtream`, `orange.tv`, `pluto.tv`,
+`rakuten.tv`, `samsung.tvplus`) et `script.module.tv_common` sont dans le
+monorepo privé `tv-addons` — code et ressources à nous. `vstream`,
+`sendtokodi` et `service.iptv.manager` sont packagés par HavenOS (`pkgs/`) mais
+leur code vient de l'amont : on les corrige par patch ou par réglage, pas par
+réécriture. `pvr.iptvsimple` est un paquet nixpkgs.
+
+**Hypothèses, dans l'ordre de coût** :
+1. les fanarts sont décodés en textures à l'activation de l'addon → réduire ou
+   supprimer les `resources/media/*.jpg` des cinq addons maison, puis remesurer ;
+2. un module Python est importé au démarrage → vérifier avec `kodi.log` en debug
+   (`CAddon` / imports) sur un seul greffon activé ;
+3. le skin précharge les vignettes des addons → tester avec un skin sans
+   vignettes ou un menu d'accueil réduit.
+
+**Protocole** (déjà éprouvé) : un redémarrage par configuration, 60 s de chauffe,
+`Pss`/`Pss_Anon` de `kodi.bin`, et **deux runs identiques** pour la
+reproductibilité (mesuré : 300,4 et 299,9 MiB). Activer un greffon à la fois :
+c'est la seule façon d'attribuer, le lot ne le permet pas.
+
+**Critère de réussite** : 1 Gio défendable en 1080p, c'est-à-dire `MemTotal`
+768,8 MiB avec **plus de 100 MiB de marge** en lecture. La liste d'addons
+minimale est à arbitrer avec l'usage réel ; elle va dans le sens d'un système
+déterministe (moins d'état, moins de réseau, démarrage plus court).
+
+**À caractériser avant de promettre quoi que ce soit** : l'anonyme de Kodi passe
+de 59 à 156 MiB avec l'usage (relevés 755 MiB à froid contre 806 MiB après une
+heure). Plateau ou dérive, la réponse change le verdict 1 Gio — échantillonner
+`Pss_Anon` sur 2 h avant de conclure.
+
 ## Prochaines mesures, par ordre de valeur
 
 1. **L3 (tampons)** : réduire le tampon `inputstream.adaptive`, relancer la mire
