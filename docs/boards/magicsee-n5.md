@@ -186,6 +186,13 @@ L'avertissement `do not know how to make this configuration bootable; please
 enable a boot loader` est **attendu** : la charge utile est épinglée hors du
 système et c'est nous qui la posons sur `p1`.
 
+## Compatibilité 1 Gio
+
+Le kiosque mesure 906 Mo de besoin à 1080p (340 Mo de système + 566 Mo de Kodi) et
+réclame 137 Mo de CMA par-dessus : **il ne rentre pas sur 1 Gio** en l'état. Les
+leviers, leurs gains mesurés et les pièges de mesure sont rassemblés dans
+[`empreinte-memoire.md`](../empreinte-memoire.md).
+
 ## Révision du 2026-10-31
 
 Cette page a été corrigée en place. Ce qu'elle affirmait au 26/10 et pourquoi

@@ -72,6 +72,7 @@
 |---|---|---|
 | D1 | HEVC `EXT_SPS_ST_RPS` absent de la série FFmpeg 6.1.6 | **chiffré : ≈ 9 h (7–13) de rebase** vers 7.1.5, dont 4 h de vraie API HEVC (`HEVCParamSets` perd `ps.pps/sps`, `h->ref` → `cur_frame`, DPB par couche), **plus le blocage Kodi** : le pin ne contient que Kodi 21.3, construit contre `libavcodec 60` → il faudrait un Kodi 22 vendorisé. **Verdict : ne pas y aller.** Le contrôle existe déjà côté noyau ; seul l'émetteur manque côté FFmpeg, et `ShortTermRPS` de 6.1 porte déjà tous les champs nécessaires : ~60–120 lignes, **3–5 h**, sans bump ni Kodi. À déclencher seulement si un flux l'exige. |
 | D2 | plancher CPU du VPU : trafic mémoire (3,1 Mio/image, DMA non cohérent, pas d'IOMMU sur GXL), 0,83 × temps réel à 1080p | non prioritaire, gain attendu < 20 %, effort élevé |
+| D3 | **compatibilité 1 Gio (boîtes à 1 Go)** : besoin mesuré à 1080p = 906 Mo (340 système + 566 Kodi) **plus** 137 Mo de CMA, contre 896 Mo de `MemTotal` au mieux avec `cma=128M`. Il manque ~150 Mo. Leviers et pièges : [`docs/empreinte-memoire.md`](../empreinte-memoire.md) | L2 (mode 720p, dans la charge utile) d'abord, puis L3 (tampons) |
 
 ## 3. Trois lanes, une règle chacune
 
