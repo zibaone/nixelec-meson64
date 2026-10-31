@@ -1,5 +1,14 @@
 # Installateur eMMC — image `magicsee-n5-installer`
 
+> **Périmé sur la charge utile depuis le 2026-10-31.** Le §« la charge utile »
+> et tous les journaux qui mentionnent `uImage.multi` décrivent l'état d'avant
+> C5/C6 : la charge utile ne produit plus ce fichier, et les deux autoscripts
+> sont désormais épinglés à leur média (`nixelec-meson64` `594c4fe`, voir
+> `docs/plan-travaux-restants.md` C5/C6). Ce document reste la référence pour
+> l'**installateur** (sauvegarde, refus de repartitionner, vérification après
+> démontage), pas pour le contenu de la charge utile.
+
+
 > **Statut** : code écrit, image construite (artefact du 2026-10-27),
 > **jamais démarrée sur la carte**. Tout ce qui suit est déduit du code
 > (`modules/image/meson64-installer.nix`, `modules/image/n5-boot.nix`,
