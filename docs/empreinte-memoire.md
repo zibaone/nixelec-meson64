@@ -92,14 +92,66 @@ charge utile avec `video=HDMI-A-1:1280x720@60` (voir C8 de
 - **`RSS` cumulé sur tous les processus surestime** (bibliothèques partagées
   comptées plusieurs fois) : préférer `smaps_rollup` par processus.
 
+## Mesure L2 — 720p + `cma=128M`, faite le 2026-10-31
+
+Système `kx4a88fm…` (branche `mesure/l2-prod`, construite sur la production du
+jour), `cma=128M`, `video=HDMI-A-1:1280x720@60`, sans carte SD. `MemTotal`
+1 835 796 Ko. Relevés produits par `scripts/mesure-memoire.sh`, source déclarée
+avec `--source`.
+
+| état | source | `CmaFree` | CMA utilisée | `Pss` kodi.bin | mémoire occupée |
+|---|---|---|---|---|---|
+| sans Kodi | — | 125 012 | 5,9 Mo | — | 331 452 Ko |
+| inactif | — | 110 736 | 19,9 Mo | 307 240 Ko | 561 772 Ko |
+| lecture | replay 720p | 46 388 | 82,7 Mo | 372 087 Ko | 700 996 Ko |
+| lecture | mire 1080p | 27 236 | **101,4 Mo** | 392 440 Ko | **825 456 Ko** |
+
+Pour comparaison, la référence 1080p du même protocole : CMA 137 Mo en lecture,
+`Pss` 327 120 Ko au repos, 858 Mo occupés en lecture.
+
+**Effet propre du mode d'affichage, mesuré sans décodeur actif** (les deux
+colonnes sont comparables, aucune source en jeu) : CMA au repos **43,0 → 19,9 Mo**
+(−23,1), `Pss` **327 240 → 307 240 Ko** (−20,0). Soit **43 Mo** gagnés.
+
+### Verdict provisoire sur la cible 1 Gio (D3)
+
+Sur cette carte, 261 356 Ko échappent à `MemTotal` : 131 072 de CMA plus 130 284
+de noyau et réservations. Sur une carte de 1 Gio avec `cma=128M`, `MemTotal`
+vaudrait donc ≈ **787 220 Ko (768 Mio)**.
+
+| scénario sur 1 Gio | occupé | marge |
+|---|---|---|
+| lecture d'une source **720p** | 701 Mo | **+67 Mo** — passe |
+| lecture d'une source **1080p** | 825 Mo | **−57 Mo** — ne passe pas |
+
+Conclusion honnête : **1 Gio tient si le contenu est en 720p, pas s'il est en
+1080p**, à moins de récupérer ~60 Mo sur les tampons du lecteur — c'est
+exactement ce que L3 propose de mesurer. La cible « 1 Gio » n'est donc pas
+tranchée par L2 seule : elle dépend de la définition des sources, ce que le
+document initial ne distinguait pas.
+
+Deux pièges payés pendant cette mesure :
+
+- **La résolution décodée ne se lit pas sur `/dev/video0`.** Sur ce pilote
+  stateless le format reste figé au premier `S_FMT` : il annonçait `1280/720`
+  pendant le décodage d'une mire 1920x1080. C'est l'écart de CMA (82,7 → 101,4 Mo)
+  qui prouve le 1080p, pas le sysfs. D'où `--source`, déclaré par l'opérateur.
+- **Les replays france.tv sont en 720p**, quelle que soit l'émission. Pour une
+  mesure 1080p il faut une mire locale (voir plus bas) ou une chaîne en direct HD.
+
+La mire de référence est un H.264 High@4.0 1920x1080 25 i/s de 30 s, générée par
+`ffmpeg -f lavfi -i testsrc2=size=1920x1080:rate=25:duration=30 -c:v libx264
+-profile:v high -pix_fmt yuv420p -b:v 4M -g 50 -an`, puis posée dans le store de
+la carte (`nix store add-file` + `nix copy`) et lancée par `Player.Open`. Même
+source pour toutes les mesures futures, indépendante de la playlist.
+
 ## Prochaines mesures, par ordre de valeur
 
-1. **L2 (720p)** : configuration à `video=HDMI-A-1:1280x720@60` + `cma=128M`,
-   nouvelle charge utile, puis les trois états mesurés (sans Kodi, inactif,
-   lecture). C'est la seule mesure qui dira si 1 Gio passe.
-2. **L3 (tampons)** : réduire le tampon `inputstream.adaptive`, relancer un flux et
-   relever `Rss`/`CmaFree` pendant la lecture. Ne demande aucune reconstruction.
-3. **L4 (audio)** : mesurer `pipewire` + `wireplumber` sur une session réelle avant
+1. **L3 (tampons)** : réduire le tampon `inputstream.adaptive`, relancer la mire
+   1080p et relever `CmaFree`/`Pss` pendant la lecture. C'est la seule mesure qui
+   peut combler les ~57 Mo manquants pour tenir 1 Gio avec des sources 1080p ; elle
+   ne demande aucune reconstruction. Le reste de L2 est fait (voir ci-dessus).
+2. **L4 (audio)** : mesurer `pipewire` + `wireplumber` sur une session réelle avant
    de décider ; 31 Mo ne suffisent pas à faire passer le budget, mais ils comptent
    si L2 n'en rend pas assez.
 
