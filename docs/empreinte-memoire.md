@@ -224,10 +224,10 @@ quelques MiB de code, pas 37, et casserait les fonctions qui font la boîte.
 
 ## Chantier suivant : empreinte des addons (à ouvrir, mesuré le 31/10)
 
-**Acquis** : sept greffons VOD coûtent ~130 MiB d'anonyme à l'activation, dont
-`vstream` 29 et `service.iptv.manager` 10 ; le reste se répartit sur
-`xtream`, `orange.tv`, `pluto.tv`, `rakuten.tv`, `samsung.tvplus`,
-`sendtokodi`. Rien de tout cela n'est du code mappé : c'est de la mémoire
+**Acquis** : les sept greffons VOD coûtent ~130 MiB d'anonyme à l'activation
+(`vstream` 29 à lui seul, le reste réparti sur `xtream`, `orange.tv`,
+`pluto.tv`, `rakuten.tv`, `samsung.tvplus`, `sendtokodi`) ; `service.iptv.manager`
+ajoute ~10 MiB, indépendamment. Rien de tout cela n'est du code mappé : c'est de la mémoire
 allouée, très probablement des textures d'illustration (les `fanart.jpg` des
 paquets pèsent 0,5–0,8 Mo, soit ~8 Mo en RGBA une fois décodés).
 
