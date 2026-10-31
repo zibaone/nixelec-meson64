@@ -41,7 +41,8 @@ usage : scripts/mesure-memoire.sh --host root@<ip> [options]
 
 Sortie : une ligne CSV par état, entête incluse au premier passage.
 Colonnes : etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,
-           slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc
+           slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,
+           vdec_wxh (résolution décodée, vide hors lecture)
 EOF
 }
 
@@ -88,7 +89,13 @@ for p in $(pgrep -x kodi.bin || true); do
   pss_file=$((pss_file + $(awk '/^Pss_File:/ {print $2}' "/proc/$p/smaps_rollup")))
 done
 
-printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+# Résolution réellement décodée, lue sur le périphérique de capture du VPU et
+# non sur l'interface : deux mesures de `CmaFree` ne sont comparables que si la
+# source a la même définition (les tampons suivent la source, pas l'affichage).
+# Vide quand rien n'est décodé (le pilote peut répondre pendant la lecture).
+vdec=$(v4l2-ctl -d /dev/video0 --get-fmt-video 2>/dev/null | awk -F: '/Width\/Height/ {gsub(/[ \t]/,"",$2); print $2}')
+
+printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
   "$etat" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   "$(mem MemTotal)" \
@@ -99,7 +106,8 @@ printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
   "$pss" \
   "$pss_anon" \
   "$pss_file" \
-  "$nb"
+  "$nb" \
+  "${vdec:-}"
 EOS
 }
 
@@ -138,7 +146,7 @@ demarrer_kodi() {
 }
 
 entete() {
-  printf '%s\n' "etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc"
+  printf '%s\n' "etat,date,memtotal_kb,memavailable_kb,cmatotal_kb,cmafree_kb,slab_kb,kodi_pss_kb,kodi_pss_anon_kb,kodi_pss_file_kb,kodi_nb_proc,vdec_wxh"
 }
 
 emettre() {
