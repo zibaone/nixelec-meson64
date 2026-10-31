@@ -312,6 +312,21 @@ poste-là. **Non attribué** : `/proc/slabinfo` ne totalise que ~70 Mo quand
 `/proc/meminfo` en annonce 447 sur ce noyau (7.0.14), et aucune cache SLUB ne
 croît ; la suite est `/sys/kernel/slab/*/objects`, pas une conclusion.
 
+### Attribution : décodeur matériel, pas Kodi (31/10, 16 h)
+
+La dérive de `Slab` n'est ni la mémoire de Kodi ni un cache SLUB : `slabinfo`
+totalise 71,5 Mo quand `meminfo` annonce 485,7 Mo, `vmalloc` recule, et
+`slab_unreclaimable` du cgroup de `kodi.bin` reste à 0,84 Mio. Deux lectures du
+même fichier, avec preuve par `CmaFree` que le bras logiciel est en vigueur :
+
+| bras | `CmaFree` pendant | `Slab` | `AnonPages` |
+|---|---|---|---|
+| matériel | 129 508 Ko (88 Mo de CMA) | **+4 216 Ko** | −7 648 Ko |
+| logiciel | 186 012 Ko (33 Mo) | **+316 Ko** | **+16 204 Ko** |
+
+`videoplayer.useprimedecoder=false` ne persiste pas au redémarrage : bascule à
+chaud obligatoire, et l'effet se prouve par `CmaFree`.
+
 ## Prochaines mesures, par ordre de valeur
 
 1. **L3 (tampons)** : réduire le tampon `inputstream.adaptive`, relancer la mire
