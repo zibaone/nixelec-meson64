@@ -44,7 +44,10 @@ Détails utiles :
 - Bluetooth : le DTB p212 décrit un contrôleur Broadcom ; le kernel tente
   `hci_uart_bcm` et échoue (`Failed to set baudrate`). Le matériel est un
   QCA9377 et doit utiliser `btqca`/un nœud DT QCA.
-- IR : `meson-ir` sur `c8100580.ir`, récepteur brut + keymap NEC.
+- IR : `meson-ir` sur `c8100580.ir`, NEC **logiciel** (`RC_DRIVER_IR_RAW`,
+  le GXL n'a pas de décodeur matériel) ; télécommande **NECX adresse `0x02FE`**,
+  keymap `clone.toml` du profil kiosque, `event0` classé clavier/siège.
+  Mesuré le 2026-11-01 — détail et codes touche par touche plus bas.
 - CEC : `meson-ao-cec`, adresse physique `2.0.0.0` obtenue de la TV le 2026-10-28.
 - GPU : Lima probe, mais avertissement `_opp_set_regulators: no regulator
   (mali) found` (non bloquant).
@@ -135,6 +138,48 @@ Un DTB qui boote ne suffit pas. Le bon DTB doit garder Ethernet, WiFi, IR,
 SD, eMMC, CEC, GPU et audio. Pour le Bluetooth QCA9377, prévoir un overlay
 ou un DTS dérivé de p212 plutôt qu'un DTB d'une autre boîte.
 
+## Télécommande IR — mesure du 2026-11-01
+
+Le récepteur du SoC (`ir@c8100580`, compatible `amlogic,meson-gxbb-ir`) est un
+**décodeur logiciel** : sur GXL le pilote `meson-ir` s'enregistre en
+`RC_DRIVER_IR_RAW` (`support_hw_decoder = false`), expose `rc0` avec
+`rc-5 nec … [lirc]` et ne décode rien tant que `nec` n'est pas activé et qu'une
+keymap n'est pas chargée. `ir_nec_decoder` n'a aucun compatible OF : il survit à
+l'élagage seulement parce que la couche famille le liste dans `extraKeep`.
+
+La télécommande de la boîte émet du **NECX 24 bits**, adresse `0x02FE`
+(`0x2fe<cmd>`). Codes relevés touche par touche (`ir-keytable -s rc0 -t`,
+appuis espacés, ordre connu) :
+
+| touche | scancode | | touche | scancode |
+|---|---|---|---|---|
+| POWER | `0x2fe40` | | RETOUR | `0x2fe19` |
+| HAUT | `0x2fe16` | | HOME | `0x2fe11` |
+| BAS | `0x2fe1a` | | VOL+ | `0x2fe18` |
+| GAUCHE | `0x2fe51` | | VOL− | `0x2fe10` |
+| DROITE | `0x2fe50` | | MUTE | `0x2fe43` |
+| OK | `0x2fe13` | | | |
+
+Côté HavenOS, cette télécommande est déjà décrite par
+`modules/profiles/remotes/clone.toml` (NECX), avec une correction mesurée :
+MUTE est à `0x2fe43` et non `0x2fe0f` (l'ancienne entrée, héritée de la
+disposition `hk1x3`, ne correspond à aucune touche de cette télécommande).
+
+Deux pièges de classement, mesurés :
+
+- `ATTRS{name}` vaut **`meson-ir`** ; `meson-ir/input0` est `input_phys`. Une
+  règle udev sur ce dernier ne matche pas, et le device reste
+  `ID_INPUT_POINTINGSTICK=1` sans siège — libinput/Kodi ne l'énumère alors
+  jamais. Une règle sur `meson-ir` pose `ID_SEAT=seat0` et
+  `ID_INPUT_KEYBOARD=1`.
+- Kodi enregistre ses périphériques d'entrée **au démarrage** : si la règle udev
+  arrive après (premier déploiement), un `systemctl restart kodi-gbm` est
+  nécessaire pour qu'il reprenne le device.
+
+Une seconde télécommande apparaît dans les captures à l'adresse `0x0707`
+(codes `0x707xx`) : c'est la télécommande du téléviseur (Samsung, NEC), pas
+celle de la boîte — ne pas la mettre dans la keymap du kiosque.
+
 ## Points à mesurer ensuite
 
 - [x] SoC exact : GXL S905L (`0x21`, `21:d`)
@@ -146,7 +191,8 @@ ou un DTS dérivé de p212 plutôt qu'un DTB d'une autre boîte.
 - [x] Ethernet : driver + PHY interne, lien direct mesuré (IPv6 lien-local)
 - [x] WiFi : QCA9377, association + DHCP (`192.168.1.21`)
 - [ ] Bluetooth : QCA9377 avec nœud DT correct
-- [x] IR : `meson-ir` + NEC
+- [x] IR : `meson-ir` + NEC logiciel, télécommande NECX `0x02FE` pilotant Kodi
+  (2026-11-01 ; keymap `clone.toml` côté HavenOS, MUTE à `0x2fe43`)
 - [x] HDMI vidéo (kiosque 1080p60) — reste l'audio HDMI à re-mesurer sur cette boîte
 - [x] CEC : lien et adresse physique `2.0.0.0` (pilotage Kodi non fait)
 - [x] GPU Lima
