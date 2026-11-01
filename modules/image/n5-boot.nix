@@ -5,6 +5,7 @@
     {
       kernel,
       initrd,
+      dtb,
       dtbName,
       rootLabel,
       bootParams,
@@ -81,7 +82,10 @@
       mkdir -p $out
       cp ${kernel}/Image $out/Image
       cp ${initrd} $out/initrd
-      cp ${kernel}/dtbs/${dtbName} $out/${dtbBase}
+      # `dtb` vient de `hardware.deviceTree.package` : c'est le seul arbre qui
+      # porte les overlays de la carte (LED, et tout ce qui viendra). Lire
+      # `${kernel}/dtbs` donnerait le p212 nu.
+      cp ${dtb} $out/${dtbBase}
       # Les deux sources lisibles restent sur la FAT : c'est ce qu'on relit au
       # port série (`fatload` + `md`) pour savoir quel script a été exécuté.
       cp ${sdBootScript} $out/s905_autoscript.txt

@@ -10,6 +10,8 @@ let
   bootFiles = (import ./n5-boot.nix { inherit pkgs lib; }).mkBootFiles {
     kernel = config.boot.kernelPackages.kernel;
     initrd = "${config.system.build.toplevel}/initrd";
+    # Chemin complet : le paquet porte les overlays de la carte.
+    dtb = "${config.hardware.deviceTree.package}/${config.hardware.deviceTree.name}";
     dtbName = config.hardware.deviceTree.name;
     rootLabel = config.sdImage.rootVolumeLabel;
     bootParams = config.boot.kernelParams;
