@@ -29,6 +29,12 @@ in
       # (`mkfs.ext4 -L`) : elle doit être celle que la cible attend, sinon
       # stage-1 ne trouve pas sa racine au premier démarrage.
       n5TargetRootLabel = self.nixosConfigurations.magicsee-n5-bringup.config.nixelec.rootLabel;
+      # Schéma d'amorçage déclaré par la cible : l'installateur refuse un
+      # schéma différent avant la première écriture (garde croisée).
+      n5TargetBootloader = self.nixosConfigurations.magicsee-n5-bringup.config.nixelec.bootloader;
+      # DTB de la cible, relatif à `$toplevel/dtbs` : la charge utile vendor
+      # copie ce fichier depuis le toplevel installé.
+      n5TargetDtb = self.nixosConfigurations.magicsee-n5-bringup.config.hardware.deviceTree.name;
       # BL33 mainline (U-Boot p212) construit dans le jeu croisé x86_64 →
       # aarch64 : la construction reste native, donc en secondes. L'installateur
       # l'assemble avec les BL2/BL30/BL31 lus sur la carte cible.

@@ -5,6 +5,8 @@
   modulesPath,
   n5TargetSystem,
   n5TargetRootLabel,
+  n5TargetBootloader,
+  n5TargetDtb,
   n5UbootBl33,
   ...
 }:
@@ -135,11 +137,86 @@ let
   installScript = pkgs.writeShellScript "n5-install" ''
     set -euo pipefail
 
+    # ------------------------------------------------------------------
+    # Deux schémas d'amorçage, jamais un mélange
+    #
+    # `vendor`   : charge utile épinglée sur NIXOS_BOOT, lue par le U-Boot
+    #              d'origine (autoscripts + uImage/uInitrd à plat) ;
+    # `mainline` : extlinux écrit par `nixos-install`, puis BL33 dans le FIP.
+    #
+    # Le schéma de la cible est figé à la construction (`nixelec.bootloader`
+    # de la configuration cible) ; celui demandé à l'appel doit lui être
+    # identique. Les deux refus croisés tombent AVANT le premier `dd`.
+    # ------------------------------------------------------------------
+    target_scheme="${n5TargetBootloader}"
     target_system="${n5TargetSystem}"
-    disk="''${1:-/dev/mmcblk1}"
-    backup_dir="''${2:-/var/lib/n5-backup}"
+    root_label="${n5TargetRootLabel}"
+    dtb_name="${n5TargetDtb}"
+
+    disk=/dev/mmcblk1
+    backup_dir=/var/lib/n5-backup
+    scheme=""
+    write_bl33=1
     stamp="$(date -u +%Y%m%dT%H%M%SZ)"
     work="$(mktemp -d /tmp/n5-install.XXXXXX)"
+
+    usage() {
+      cat <<EOF
+    usage: install.sh [--vendor|--mainline] [--no-bl33] [disque] [sauvegarde]
+
+      --vendor    charge utile épinglée sur NIXOS_BOOT (U-Boot d'origine)
+      --mainline  extlinux puis BL33 mainline (schéma par défaut : $target_scheme)
+      --no-bl33   mainline seulement : ne pas toucher au FIP (unité déjà migrée)
+
+    défauts : disque=/dev/mmcblk1  sauvegarde=/var/lib/n5-backup
+    EOF
+    }
+
+    positional=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --vendor) scheme=vendor ;;
+        --mainline) scheme=mainline ;;
+        --no-bl33) write_bl33=0 ;;
+        -h | --help)
+          usage
+          exit 0
+          ;;
+        --)
+          shift
+          break
+          ;;
+        -*)
+          echo "argument inconnu : $1" >&2
+          usage >&2
+          exit 2
+          ;;
+        *) positional+=("$1") ;;
+      esac
+      shift
+    done
+    while [ $# -gt 0 ]; do
+      positional+=("$1")
+      shift
+    done
+    if [ "''${#positional[@]}" -gt 0 ]; then disk="''${positional[0]}"; fi
+    if [ "''${#positional[@]}" -gt 1 ]; then backup_dir="''${positional[1]}"; fi
+    if [ -z "$scheme" ]; then scheme="$target_scheme"; fi
+
+    echo "schéma : $scheme (cible configurée $target_scheme)"
+    # L'outil de la branche doit être là AVANT le formatage : un mkimage
+    # manquant après le `nixos-install` laisserait une eMMC sans charge utile.
+    if [ "$scheme" = "vendor" ]; then
+      if ! command -v mkimage >/dev/null 2>&1; then
+        echo "outil manquant pour la charge utile vendor : mkimage (ubootTools)" >&2
+        exit 1
+      fi
+    elif [ "$write_bl33" -eq 1 ]; then
+      if ! command -v gxlimg >/dev/null 2>&1; then
+        echo "outil manquant pour le BL33 mainline : gxlimg" >&2
+        exit 1
+      fi
+    fi
 
     if [ "''${EUID}" -ne 0 ]; then
       echo "run as root" >&2
@@ -158,7 +235,7 @@ let
     fi
 
     # Le FIP (secteur 1 → 1 Mio) et l'environnement du U-Boot vendor (628 Mio)
-    # vivent avant p1 : aucune écriture ne doit les recouvrir, sauf le FIP
+    # vivent avant p1 : aucune écriture ne doit les recouvrer, sauf le FIP
     # lui-même, explicitement, à la fin.
     start1="$(cat "/sys/class/block/$(basename "$p1")/start")"
     if [ "$start1" -lt 1368064 ]; then
@@ -184,6 +261,7 @@ let
 
     echo "target: $disk (p1=$p1, p2=$p2)"
     echo "backup: $backup_dir"
+    echo "schéma: $scheme ; la charge utile de la cible vient du toplevel installé"
     read -r -p "Type YES to overwrite p1/p2: " answer
     [ "$answer" = "YES" ] || exit 1
 
@@ -209,17 +287,20 @@ let
     umount "$p2" 2>/dev/null || true
     wipefs -a "$p1" "$p2"
     mkfs.vfat -F 32 -n NIXOS_BOOT "$p1"
-    mkfs.ext4 -L "${n5TargetRootLabel}" "$p2"
+    mkfs.ext4 -L "$root_label" "$p2"
 
     mkdir -p /mnt/n5
     mount "$p2" /mnt/n5
     mkdir -p /mnt/n5/boot
     mount -o rw "$p1" /mnt/n5/boot
 
-    # 2. Système cible. `nixos-install` y joue `switch-to-configuration boot` :
-    # la cible a `generic-extlinux-compatible`, donc `extlinux/extlinux.conf` et
-    # les fichiers par génération atterrissent sur p1 — plus de charge utile à
-    # plat, plus de `boot.scr`.
+    # 2. Système cible, dans les deux schémas. `nixos-install` copie la
+    # clôture puis joue `switch-to-configuration boot` sur la cible :
+    #   - mainline : extlinux écrit `extlinux.conf` et les fichiers de
+    #     génération sur p1 ;
+    #   - vendor   : aucun chargeur installé, l'avertissement
+    #     « do not know how to make this configuration bootable » est normal —
+    #     la charge utile est posée juste après, depuis le store de la cible.
     nixos-install --root /mnt/n5 --system "$target_system" --no-root-passwd
 
     # L'étiquette posée sur p2 doit être celle que la cible attend dans son
@@ -227,50 +308,176 @@ let
     # racine au premier démarrage — précisément l'ambiguïté que l'on vient
     # supprimer entre une SD `NIXOS_SD` et la eMMC.
     fstab_label="$(awk '$2 == "/" { n = split($1, a, "/"); print a[n] }' /mnt/n5/etc/fstab)"
-    if [ "$fstab_label" != "${n5TargetRootLabel}" ]; then
-      echo "étiquette de racine : fstab='$fstab_label', attendu='${n5TargetRootLabel}'" >&2
+    if [ "$fstab_label" != "$root_label" ]; then
+      echo "étiquette de racine : fstab='$fstab_label', attendu='$root_label'" >&2
       exit 1
     fi
 
-    conf=/mnt/n5/boot/extlinux/extlinux.conf
-    if [ ! -f "$conf" ]; then
-      echo "extlinux.conf absent : la cible n'a pas écrit de chargeur" >&2
-      exit 1
-    fi
-    grep -q '^  LINUX /nixos/' "$conf" || {
-      echo "extlinux.conf sans LINUX /nixos/<génération>" >&2
-      exit 1
-    }
-    grep -q '^  INITRD /nixos/' "$conf" || {
-      echo "extlinux.conf sans INITRD /nixos/<génération>" >&2
-      exit 1
-    }
-    if [ -e /mnt/n5/boot/boot.scr ]; then
-      echo "boot.scr présent sur p1 : supprimé (le mainline le lirait avant extlinux)" >&2
-      rm -f /mnt/n5/boot/boot.scr
+    if [ "$scheme" = "vendor" ]; then
+      # ----------------------------------------------------------------
+      # Charge utile épinglée, celle que lit le U-Boot d'origine
+      #
+      # Elle est produite depuis le toplevel RÉELLEMENT installé, pas depuis
+      # les fichiers de cet installateur : `init=`, noyau, initrd et DTB
+      # doivent être ceux que `nixos-install` vient de copier dans
+      # `/mnt/n5/nix/store`. Un `init=` figé ici sur un autre toplevel
+      # donnerait `Attempted to kill init` au premier démarrage.
+      #
+      # Le chargeur relit des fichiers à plat sur la FAT et échoue au-delà de
+      # ~38 Mo (mesuré : `Bad Data CRC` sur un conteneur de 63 Mo, alors que
+      # le fichier du média est conforme). D'où `uImage` et `uInitrd` séparés,
+      # et jamais de conteneur multi.
+      # ----------------------------------------------------------------
+      payload="$work/payload"
+      mkdir -p "$payload"
+      toplevel="$(readlink -f /mnt/n5/nix/var/nix/profiles/system)"
+      case "$toplevel" in
+        /mnt/n5/nix/store/*) ;;
+        *)
+          echo "profil system de la cible hors de /mnt/n5/nix/store : $toplevel" >&2
+          exit 1
+          ;;
+      esac
+      for f in init kernel initrd "dtbs/$dtb_name"; do
+        if [ ! -e "$toplevel/$f" ]; then
+          echo "toplevel installé sans $f : $toplevel" >&2
+          exit 1
+        fi
+      done
+      dtb_base="$(basename "$dtb_name")"
+      cp -L "$toplevel/kernel" "$payload/Image"
+      cp -L "$toplevel/initrd" "$payload/initrd"
+      cp -L "$toplevel/dtbs/$dtb_name" "$payload/$dtb_base"
+
+      # Les paramètres viennent du toplevel installé (`kernel-params`) : la
+      # console, le CMA et le mode vidéo sont ceux que le noyau de la cible
+      # recevra réellement, pas ceux supposés ici.
+      bootargs="$(cat "$toplevel/kernel-params") earlycon root=LABEL=$root_label rootwait rw init=$toplevel/init"
+
+      printf 'dtb_name=/%s\nbootargs=%s\n' "$dtb_base" "$bootargs" >"$payload/uEnv.ini"
+
+      # Un autoscript par média, chacun épinglé à son numéro de mmc : le
+      # vendor numérote la SD `mmc 0` et la eMMC `mmc 1`. Aucun repli —
+      # un script qui tente les deux médias a déjà chargé la charge utile de
+      # la SD en démarrant depuis la eMMC (cause mesurée le 31/10).
+      for mmc in 0 1; do
+        {
+          printf 'setenv bootargs "%s"\n' "$bootargs"
+          printf 'setenv uimage_addr 0x20000000\n'
+          printf 'setenv uinitrd_addr 0x13000000\n'
+          printf 'setenv fdt_addr 0x1000000\n'
+          printf 'fatload mmc %s:1 ''${uimage_addr} uImage\n' "$mmc"
+          printf 'fatload mmc %s:1 ''${uinitrd_addr} uInitrd\n' "$mmc"
+          printf 'fatload mmc %s:1 ''${fdt_addr} %s\n' "$mmc" "$dtb_base"
+          printf 'echo "Booting NixOS from mmc %s:1"\n' "$mmc"
+          printf 'bootm ''${uimage_addr} ''${uinitrd_addr} ''${fdt_addr}\n'
+        } >"$payload/autoscript-mmc$mmc.txt"
+      done
+      cp "$payload/autoscript-mmc0.txt" "$payload/s905_autoscript.txt"
+      cp "$payload/autoscript-mmc1.txt" "$payload/emmc_autoscript.txt"
+
+      mkimage -A arm64 -O linux -T script -C none -n "N5 boot SD" \
+        -d "$payload/s905_autoscript.txt" "$payload/s905_autoscript"
+      mkimage -A arm64 -O linux -T script -C none -n "N5 boot eMMC" \
+        -d "$payload/emmc_autoscript.txt" "$payload/emmc_autoscript"
+      mkimage -A arm64 -O linux -T kernel -C none -a 0x1080000 -e 0x1080000 \
+        -n NixOS -d "$payload/Image" "$payload/uImage"
+      # `bootm` refuse un initrd cpio brut, d'où l'encapsulation uImage.
+      mkimage -A arm64 -O linux -T ramdisk -C gzip -n "NixOS initrd" \
+        -d "$payload/initrd" "$payload/uInitrd"
+
+      # Pas de `boot.scr` : c'est le nom que lit le chargeur mainline, avant
+      # extlinux. Sur une unité vendor il ne serait jamais lu, et après une
+      # migration il masquerait extlinux avec une charge utile figée.
+      sync
+      cp -f "$payload/Image" "$payload/initrd" "$payload/$dtb_base" \
+        "$payload/uImage" "$payload/uInitrd" \
+        "$payload/s905_autoscript" "$payload/emmc_autoscript" \
+        "$payload/s905_autoscript.txt" "$payload/emmc_autoscript.txt" \
+        "$payload/uEnv.ini" /mnt/n5/boot/
+
+      # 2 bis. Relecture hors cache : démonter, remonter en lecture seule,
+      # comparer octet par octet. Sans le démontage, `cmp` peut valider la
+      # page cache de l'écriture (défaut déjà constaté sur cette carte).
+      sync
+      blockdev --flushbufs "$p1" 2>/dev/null || true
+      umount /mnt/n5/boot
+      mount -o ro "$p1" /mnt/n5/boot
+      for f in Image initrd "$dtb_base" uImage uInitrd \
+        s905_autoscript emmc_autoscript \
+        s905_autoscript.txt emmc_autoscript.txt uEnv.ini; do
+        if ! cmp -s "$payload/$f" "/mnt/n5/boot/$f"; then
+          echo "relecture différente de l'écrit : $f (charge utile non fiable)" >&2
+          exit 1
+        fi
+      done
+
+      # `init=` doit être le même partout, et égal au profil `system` de la
+      # cible : c'est la seule preuve que la charge utile amorce bien le
+      # système installé, et pas celui de l'installateur.
+      init_expected="$toplevel/init"
+      profile="$(readlink -f /mnt/n5/nix/var/nix/profiles/system)"
+      if [ "$profile" != "$toplevel" ]; then
+        echo "profil system = '$profile', toplevel de la charge utile = '$toplevel'" >&2
+        exit 1
+      fi
+      for f in uEnv.ini s905_autoscript.txt emmc_autoscript.txt; do
+        got="$(sed -n 's/.*init=\([^ "]*\).*/\1/p' "/mnt/n5/boot/$f" | head -n 1)"
+        if [ "$got" != "$init_expected" ]; then
+          echo "$f : init='$got', attendu='$init_expected'" >&2
+          exit 1
+        fi
+      done
+      echo "charge utile vérifiée : $(ls -1 /mnt/n5/boot | wc -l) fichiers, init=$init_expected"
+    else
+      conf=/mnt/n5/boot/extlinux/extlinux.conf
+      if [ ! -f "$conf" ]; then
+        echo "extlinux.conf absent : la cible n'a pas écrit de chargeur" >&2
+        exit 1
+      fi
+      grep -q '^  LINUX /nixos/' "$conf" || {
+        echo "extlinux.conf sans LINUX /nixos/<génération>" >&2
+        exit 1
+      }
+      grep -q '^  INITRD /nixos/' "$conf" || {
+        echo "extlinux.conf sans INITRD /nixos/<génération>" >&2
+        exit 1
+      }
+      # Une charge utile épinglée sur p1 masquerait extlinux (ce chargeur lit
+      # `boot.scr` avant) : en mainline, elle n'a rien à faire là.
+      for f in boot.scr uImage uInitrd uEnv.ini; do
+        if [ -e "/mnt/n5/boot/$f" ]; then
+          echo "charge utile vendor sur une cible mainline : $f supprimé" >&2
+          rm -f "/mnt/n5/boot/$f"
+        fi
+      done
+
+      # Vérification de la FAT par relecture : `drop_caches` ne suffit pas tant
+      # que la partition est montée, et il faut pousser au média avant de conclure.
+      sync
+      blockdev --flushbufs "$p1" 2>/dev/null || true
+      umount /mnt/n5/boot
+      mount -o ro "$p1" /mnt/n5/boot
+      kernels="$(ls -1 /mnt/n5/boot/nixos 2>/dev/null | grep -c 'Image$' || true)"
+      echo "extlinux installé : $kernels noyau(x) sous /boot/nixos"
+      if [ "''${kernels:-0}" -lt 1 ]; then
+        echo "aucun noyau sous /boot/nixos" >&2
+        exit 1
+      fi
+      umount /mnt/n5/boot
+      mount -o rw "$p1" /mnt/n5/boot
+
+      # 3. BL33 : une seule implémentation de l'écriture, partagée avec le
+      # mode autonome (`/etc/n5/uboot-install.sh`). On lui repasse
+      # l'horodatage pour qu'il réutilise la sauvegarde faite à l'étape 1.
+      if [ "$write_bl33" -eq 1 ]; then
+        ${ubootScript} "$disk" "$backup_dir" "$stamp"
+      else
+        echo "--no-bl33 : FIP intact, le chargeur installé est conservé"
+      fi
     fi
 
-    # Vérification de la FAT par relecture : `drop_caches` ne suffit pas tant
-    # que la partition est montée, et il faut pousser au média avant de conclure.
-    sync
-    blockdev --flushbufs "$p1" 2>/dev/null || true
-    umount /mnt/n5/boot
-    mount -o ro "$p1" /mnt/n5/boot
-    kernels="$(ls -1 /mnt/n5/boot/nixos 2>/dev/null | grep -c 'Image$' || true)"
-    echo "extlinux installé : $kernels noyau(x) sous /boot/nixos"
-    if [ "''${kernels:-0}" -lt 1 ]; then
-      echo "aucun noyau sous /boot/nixos" >&2
-      exit 1
-    fi
-    umount /mnt/n5/boot
-    mount -o rw "$p1" /mnt/n5/boot
-
-    # 3. BL33 : une seule implémentation de l'écriture, partagée avec le mode
-    # autonome (`/etc/n5/uboot-install.sh`). On lui repasse l'horodatage pour
-    # qu'il réutilise la sauvegarde faite à l'étape 1.
-    ${ubootScript} "$disk" "$backup_dir" "$stamp"
-
-    echo "retirer la carte SD puis démarrer sur la eMMC"
+    echo "installation terminée (schéma $scheme) ; retirer la carte SD puis démarrer sur la eMMC"
   '';
 in
 {
@@ -284,6 +491,10 @@ in
     diffutils
     zstd
     gxlimg
+    # `mkimage` pour la charge utile vendor, générée sur la carte après
+    # `nixos-install` (la branche mainline n'en a pas besoin, mais l'outil est
+    # dans la fermeture de l'image, pas dans un chemin conditionnel).
+    ubootTools
   ];
 
   system.extraDependencies = [
