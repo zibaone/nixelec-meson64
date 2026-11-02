@@ -203,7 +203,19 @@ let
     if [ "''${#positional[@]}" -gt 1 ]; then backup_dir="''${positional[1]}"; fi
     if [ -z "$scheme" ]; then scheme="$target_scheme"; fi
 
+    # Gardes croisées — avant toute lecture/écriture du média.
     echo "schéma : $scheme (cible configurée $target_scheme)"
+    if [ "$scheme" != "$target_scheme" ]; then
+      echo "refus : schéma '$scheme' demandé, cible configurée '$target_scheme'" >&2
+      echo "  changer le schéma demande de changer nixelec.bootloader dans la" >&2
+      echo "  configuration de la cible puis de reconstruire l'installateur —" >&2
+      echo "  jamais un drapeau à l'appel." >&2
+      exit 1
+    fi
+    if [ "$scheme" = "vendor" ] && [ "$write_bl33" -eq 0 ]; then
+      echo "refus : --no-bl33 n'a de sens qu'en schéma mainline" >&2
+      exit 1
+    fi
     # L'outil de la branche doit être là AVANT le formatage : un mkimage
     # manquant après le `nixos-install` laisserait une eMMC sans charge utile.
     if [ "$scheme" = "vendor" ]; then
