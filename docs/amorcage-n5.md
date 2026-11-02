@@ -73,15 +73,17 @@ où le vendor la numérote `mmc 0`.
 
 | geste | ce qu'il écrit | état |
 |---|---|---|
-| installateur, schéma **vendor** | charge utile initiale (`uImage`, `uInitrd`, autoscripts, `uEnv.ini`, DTB) | **absent du code actuel** — Spec 03 |
+| installateur, schéma **vendor** | charge utile initiale (`uImage`, `uInitrd`, autoscripts, `uEnv.ini`, DTB), générée depuis le toplevel installé | présent (`nixelec-meson64` `0c55fc6`), vérifié hors carte |
 | installateur, schéma **mainline** | `extlinux.conf` (écrit par `nixos-install`), puis le BL33 | présent, mesuré sur la N5 |
-| `nixos-rebuild switch` (mainline) | `extlinux.conf` + `/nixos/<hash>/…` sur `NIXOS_BOOT` | **bloqué** : `/boot` n'est pas monté sur la FAT |
+| `nixos-rebuild switch` (mainline) | `extlinux.conf` + `/nixos/<hash>/…` sur `NIXOS_BOOT` | débloqué par le montage de `/boot`, porté par `nixelec.bootloader` (`8844c8d`) |
 | `havenos payload` (vendor) | charge utile réécrite avec le nouveau `init=` | existe (C8) ; le hook qui l'enchaîne à l'activation est C10 |
 
 Le troisième point est le maillon qui transforme le schéma mainline en schéma
 « où `switch` suffit » : sans le montage, l'activation écrit dans l'ext4 et la
-FAT garde l'entrée du dernier `dd`. Montage, `configurationLimit` et option de
-schéma sont traités ensemble dans `docs/specs/03-installateur-deux-schemas.md`.
+FAT garde l'entrée du dernier `dd`. `nixelec.bootloader` porte désormais le
+montage et le drapeau extlinux ensemble (`8844c8d`), et l'installateur génère
+la charge utile vendor du toplevel installé (`0c55fc6`) — voir
+`docs/specs/03-installateur-deux-schemas.md`.
 
 ## Pièges
 
@@ -94,11 +96,10 @@ schéma sont traités ensemble dans `docs/specs/03-installateur-deux-schemas.md`
   liés en dur, et FAT ne connaît pas les liens durs.
 - Sauvegarder `uEnv.ini` et `boot.scr` avant écrasement (`old-<date>/`) permet
   de revenir en arrière sans reflasher.
-- La partition d'amorçage **n'est pas montée** par le système (mesuré :
-  `findmnt -T /boot` rend `/`), donc `nixos-rebuild` n'écrit pas dans la FAT.
-  Ce n'est pas un détail d'ergonomie : c'est ce qui empêche le schéma mainline
-  de tenir sa promesse (« `switch` suffit »). Le montage et l'option de schéma
-  sont dans `docs/specs/03-installateur-deux-schemas.md`.
+- La partition d'amorçage n'est montée que si l'unité déclare
+  `nixelec.bootloader = "mainline"` (mesuré avant l'option : `findmnt -T /boot`
+  rendait `/`). En `vendor`, elle n'est pas montée : la charge utile vit sur la
+  FAT, lue par le chargeur, pas par le système. Porté par `8844c8d`.
 - Le noyau et l'initrd sont **dans** la charge utile : une génération différente
   implique aussi un noyau différent (fragment VPU stateful ou non). Copier
   `uEnv.ini` seul ne suffit pas.

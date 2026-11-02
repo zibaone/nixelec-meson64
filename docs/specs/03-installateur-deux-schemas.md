@@ -2,10 +2,17 @@
 
 | | |
 |---|---|
-| Statut | **proposition**, non arbitrée |
+| Statut | **arbitrée et implémentée** (étapes 1 à 4 ; étapes 5 et 6 en attente d'une unité sacrifiable) |
 | Portée | `modules/image/meson64-installer.nix`, `n5-boot.nix`, et la configuration de la cible ; N5 d'abord, réutilisable sur meson64 |
 | Dépend de | le schéma **vendor** n'est vivable qu'avec la persistance de la charge utile (backlog C8 `havenos payload` + hook C10) ; le schéma **mainline** dépend de la chaîne FIP de l'installateur (§1.8 de `docs/installateur.md`) |
 | Non-buts | remplacer BL31 (Spec 02), écrire le hook lui-même, la récupération ROM (Spec 01) |
+
+> **Arbitrage du 2026-11-02, qui corrige la décision ci-dessous.** Le défaut
+> n'est pas `"mainline"` mais **`"vendor"`** : une configuration qui ne désigne
+> pas explicitement son unité ne doit jamais faire écrire le secteur 1 (FIP) ni
+> supprimer `boot.scr`. `"mainline"` est posé par l'hôte qui désigne son unité
+> (la N5 kiosque), jamais hérité. L'installateur prend le schéma par drapeau
+> (`--vendor` / `--mainline`), pas par un fichier `/etc/n5/scheme`.
 
 ## Problème mesuré
 
@@ -38,21 +45,22 @@ Mesures qui bornent le sujet :
 - le vendor U-Boot lit `boot.scr`/`emmc_autoscript` et **pas** extlinux
   (`docs/amorcage-n5.md`).
 
-## Décision proposée
+## Décision (arbitrée)
 
 L'installateur accepte **les deux schémas** et refuse tout mélange. Le
 discriminant est l'état du **chargeur de l'unité**, pas la carte : la même N5
 peut être vendor ou mainline.
 
 1. **Option unique** : `nixelec.bootloader = "vendor" | "mainline"`, défaut
-   `"mainline"` sur la N5 (mesuré), valeur posée par la configuration cible.
+   **`"vendor"`**, valeur posée par la configuration de l'unité.
    Elle pilote trois choses, ensemble et pas séparément :
    - `boot.loader.generic-extlinux-compatible.enable` ;
    - le montage de `NIXOS_BOOT` sur `/boot` (nécessaire pour que `switch` écrive
-     les générations — c'est ce qui manque aujourd'hui) ;
-   - la forme de la charge utile (épinglée, ou aucune).
-2. **`install.sh` prend le schéma** (`--vendor` / `--mainline`, ou lecture de
-   `/etc/n5/scheme`) et **refuse** :
+     les générations — c'est ce qui manquait) ;
+   - la forme de la charge utile (épinglée, ou aucune) — appliquée là où elle
+     naît : branche vendor d'`install.sh`, ou `nixos-install` en mainline.
+2. **`install.sh` prend le schéma** (`--vendor` / `--mainline`, défaut : celui
+   de la cible) et **refuse**, avant toute lecture ou écriture du média :
    - d'écrire un BL33 quand la cible est configurée `vendor` ;
    - de laisser une charge utile quand la cible est `mainline` (elle ne serait
      pas relue et masquerait l'absence d'extlinux).
@@ -101,17 +109,23 @@ install.sh
 
 Contraintes d'implémentation :
 
-- **extlinux existe déjà dans l'arbre de travail** : `magicsee-n5.nix:83`
-  (`enable = lib.mkDefault true`, `configurationLimit = 3`) et `meson64-sd.nix:30`
-  (`mkForce false` sur le média de l'installateur, qui doit rester vendor).
-  Ce n'est donc pas `enable` qui manque, c'est le **montage** : aucun
-  `fileSystems."/boot"` n'existe dans `nixelec-meson64`. L'option de schéma doit
-  porter les deux ensemble, sinon le commentaire du board (« `switch` maître de
-  l'amorçage ») reste faux.
+- **extlinux n'est pas à activer, il est à arbitrer** : `nixbian`
+  (`nix/parts/nixos-module.nix:473`) pose `enable = true` en priorité normale,
+  c'est le schéma de ses images SD. La branche `vendor` de l'option doit donc
+  poser `mkForce false` (un `mkDefault` perd), et `meson64-sd.nix` ne force plus
+  `false` — sinon un hôte qui importe la couche image (tous les hôtes HavenOS)
+  ne pourrait jamais passer mainline. Ce n'était donc pas `enable` qui manquait,
+  c'étaient l'arbitrage et le **montage** : aucun `fileSystems."/boot"` n'existe
+  ailleurs, et l'option porte les deux ensemble.
+- **Forme réelle d'`extlinux.conf`** (mesurée le 2026-11-02 en exécutant
+  `extlinux-conf-builder.sh` sur le toplevel kiosque) : `  LINUX ../nixos/<hash>-Image`,
+  relatif à `/boot/extlinux`, jamais `/nixos/` en absolu. Un contrôle qui exige
+  la forme absolue refuse une installation correcte — corrigé par `1676d87`.
 - **`ubootTools` doit entrer dans la fermeture de l'installateur** : la branche
-  vendor appelle `mkimage` sur la carte. Il n'y est pas aujourd'hui
-  (`environment.systemPackages` : `nixos-install-tools`, `dosfstools`,
-  `e2fsprogs`, `util-linux`, `diffutils`, `zstd`, `gxlimg`).
+  vendor appelle `mkimage` sur la carte. Il n'y était pas (`environment.systemPackages` :
+  `nixos-install-tools`, `dosfstools`, `e2fsprogs`, `util-linux`, `diffutils`,
+  `zstd`, `gxlimg`) ; ajouté en `0c55fc6`, et son absence est contrôlée avant le
+  formatage.
 - La charge utile vendor se génère depuis `/mnt/n5/nix/store` **après**
   `nixos-install` : c'est le seul moment où le toplevel cible et son noyau sont
   sur la cible.
@@ -124,14 +138,18 @@ Contraintes d'implémentation :
 
 ## Plan
 
-| # | tâche | sortie vérifiable |
-|---|---|---|
-| 1 | option `nixelec.bootloader` + câblage (extlinux, montage `/boot`) | `nix eval` : `boot.loader.generic-extlinux-compatible.enable` et `fileSystems."/boot"` suivent l'option, dans les deux sens |
-| 2 | branche vendor de `install.sh` + `ubootTools` | sur une unité vendor : `install.sh --vendor` termine, `uEnv.ini`/autoscript portent `init=<toplevel>` == profil `system` |
-| 3 | garde de schéma | `install.sh --vendor` sur cible `mainline` et l'inverse sortent en code ≠ 0 **avant** le premier `dd` |
-| 4 | `--no-bl33` | sur la N5 déjà migrée, `install.sh --mainline --no-bl33` ne modifie pas le FIP (sha256 du secteur 1 identique) |
-| 5 | bout en bout, unité sacrifiable | vendor : boot sans SD après installation ; puis `uboot-install.sh` + `switch` → boot extlinux, `reboot` et la génération courante suit |
-| 6 | non-régression N5 | la carte de référence redémarre sur `smag5grw…` après un `switch` sans toucher la FAT, si l'étape 1 est faite |
+| # | tâche | sortie vérifiable | état |
+|---|---|---|---|
+| 1 | option `nixelec.bootloader` + câblage (extlinux, montage `/boot`) | `nix eval` : `boot.loader.generic-extlinux-compatible.enable` et `fileSystems."/boot"` suivent l'option, dans les deux sens | **fait** (`8844c8d`) : vendor → extlinux false, pas de `/boot` ; mainline → extlinux true, `/boot` sur `NIXOS_BOOT` |
+| 2 | branche vendor de `install.sh` + `ubootTools` | sur une unité vendor : `install.sh --vendor` termine, `uEnv.ini`/autoscript portent `init=<toplevel>` == profil `system` | **fait** (`0c55fc6`), vérifié hors carte sur une copie du toplevel cible (10 fichiers, uImage 36,58 MiB, uInitrd 24,01 MiB, `init=` identique) |
+| 3 | garde de schéma | `install.sh --vendor` sur cible `mainline` et l'inverse sortent en code ≠ 0 **avant** le premier `dd` | **fait** (`eac4c0a`), les trois refus vérifiés sur le script rendu |
+| 4 | `--no-bl33` | sur la N5 déjà migrée, `install.sh --mainline --no-bl33` ne modifie pas le FIP (sha256 du secteur 1 identique) | présent et couvert par les gardes ; **à mesurer sur la carte** |
+| 5 | bout en bout, unité sacrifiable | vendor : boot sans SD après installation ; puis `uboot-install.sh` + `switch` → boot extlinux, `reboot` et la génération courante suit | **en attente d'une unité sacrifiable** |
+| 6 | non-régression N5 | la carte de référence redémarre sur `smag5grw…` après un `switch` sans toucher la FAT, si l'étape 1 est faite | **en attente** (le kiosque déclare `mainline`, donc `/boot` sera monté au prochain `switch`) |
+
+> Correctif découvert à l'étape 2 : le contrôle extlinux exigeait `LINUX /nixos/`
+> alors que le générateur nixpkgs écrit `LINUX ../nixos/<hash>-Image`. Sans
+> `1676d87`, la branche mainline s'arrêtait sur une installation correcte.
 
 ## Risques
 

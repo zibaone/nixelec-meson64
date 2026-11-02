@@ -1,13 +1,12 @@
 # Installateur eMMC — image `magicsee-n5-installer`
 
-> **Deux schémas, et cet installateur n'en couvre qu'un (2026-11-01).** Le code
-> actuel installe une cible **mainline** : il exige `extlinux/extlinux.conf`,
-> retire `boot.scr` et écrit le BL33 — il ne produit plus la charge utile
-> épinglée, donc il **ne sait pas** installer une cible restée sur le U-Boot
-> vendor. C'est l'objet de `docs/specs/03-installateur-deux-schemas.md`. Les
-> §1.3 à §1.7 ci-dessous décrivent ce schéma vendor (charge utile, cible
-> bring-up) et restent sa référence ; les §1.8 et suivants décrivent le schéma
-> mainline.
+> **Deux schémas, un installateur (2026-11-02).** Le schéma est déclaré par la
+> cible (`nixelec.bootloader`, défaut `vendor`) : `vendor` produit la charge
+> utile épinglée sur `NIXOS_BOOT` (uImage, uInitrd, DTB, deux autoscripts,
+> `uEnv.ini`), `mainline` s'appuie sur l'`extlinux.conf` écrit par
+> `nixos-install`, puis écrit le BL33. Un appel dont le schéma diffère de celui
+> de la cible est refusé avant toute écriture ; `--no-bl33` sert aux unités
+> déjà migrées. Les §1.3 à §1.5 décrivent les deux branches, §1.8 la chaîne FIP.
 
 > **Périmé sur la charge utile depuis le 2026-10-31.** Le §« la charge utile »
 > et tous les journaux qui mentionnent `uImage.multi` décrivent l'état d'avant
@@ -37,10 +36,12 @@ sauvegardé la zone du bootloader vendor.
 | Fait | Ne fait pas |
 |---|---|
 | écrit dans `p1` et `p2` de `/dev/mmcblk1` | ne crée ni ne redimensionne de partition |
-| formate `p1` en FAT32 `NIXOS_BOOT`, `p2` en ext4 `NIXOS_SD` | ne touche pas aux 668 premiers MiB (bootloader vendor) |
-| copie la clôture de `magicsee-n5-bringup` par `nixos-install` | n'installe aucun chargeur d'amorçage |
-| pose la charge utile `uImage.multi` + `boot.scr` + DTB dans `p1` | ne sauvegarde pas le contenu de `p1`/`p2` (l'ancien système est perdu) |
-| sauvegarde 668 MiB + `boot0` + `boot1` | ne peut pas installer une autre configuration que celle de l'image |
+| formate `p1` en FAT32 `NIXOS_BOOT`, `p2` en ext4 (étiquette de la cible) | ne touche pas aux 668 premiers MiB, sauf le FIP en mainline (secteur 1, après relecture) |
+| copie la clôture de la cible par `nixos-install` | n'installe aucun chargeur en schéma vendor |
+| vendor : pose `uImage`, `uInitrd`, DTB, deux autoscripts et `uEnv.ini` dans `p1` | vendor : n'écrit pas de BL33, n'exige pas extlinux, n'écrit pas `boot.scr` |
+| mainline : exige `extlinux/extlinux.conf`, retire `boot.scr`, écrit le BL33 | mainline : ne produit aucune charge utile épinglée |
+| sauvegarde 668 MiB + `boot0` + `boot1` | ne sauvegarde pas le contenu de `p1`/`p2` (l'ancien système est perdu) |
+| — | ne peut pas installer une autre configuration que celle de l'image |
 
 Ce n'est donc pas un installeur générique : c'est une image de maintenance
 qui applique une cible connue sur une disposition eMMC connue.
@@ -176,79 +177,65 @@ compresse. Toujours désigner le fichier par glob, jamais par son nom supposé.
 C'est volontaire : l'installateur et la cible n'ont **aucune étiquette
 commune**, sinon les deux systèmes se disputeraient `/dev/disk/by-label`.
 
-### 1.4 La charge utile de la cible (embarquée)
+### 1.4 La charge utile de la cible n'est plus embarquée
 
-`meson64-installer.nix:13-20` rappelle `mkBootFiles` avec :
+Depuis l'installateur v2 (`f45d0de`), `meson64-installer.nix` n'appelle plus
+`mkBootFiles` pour la cible. Embarquer une seconde charge utile (~126 Mo) en
+plus de celle qui fait démarrer l'installateur ne tient pas dans les 256 Mio de
+`p1` (`meson64-sd.nix`), et surtout elle serait figée à la construction.
 
-| argument | valeur | conséquence |
-|---|---|---|
-| `kernel` | noyau de `magicsee-n5-bringup` | même noyau que la cible |
-| `initrd` | `${n5TargetSystem}/initrd` | initrd de la cible |
-| `rootLabel` | `"NIXOS_SD"` — **en dur** | ne suit pas une éventuelle modification de l'exemple |
-| `bootParams` | `boot.kernelParams` de la cible | `console=ttyAML0,115200n8 cma=256M video=HDMI-A-1:1920x1080@60` |
-| `toplevel` | `n5TargetSystem` | `init=` pointe sur le système à installer |
+Elle est produite **sur la carte, après `nixos-install`**, depuis le toplevel
+réellement installé (§1.5) :
 
-Les deux charges utiles ont la même forme, produite par le même
-`mkBootFiles` (`n5-boot.nix:53-64`) :
+| fichier | schéma | rôle | ordre de grandeur |
+|---|---|---|---|
+| `uImage` / `uInitrd` | vendor | noyau et initrd encapsulés, chargés séparément (le chargeur échoue au-delà de ~38 Mo par fichier) | 36,6 / 24,0 Mo |
+| `Image` / `initrd` | vendor | formes brutes, relues par l'opérateur | 36,6 / 24,0 Mo |
+| `meson-gxl-s905x-p212.dtb` | vendor | DTB chargé à `0x1000000` | 41 Ko |
+| `s905_autoscript` / `emmc_autoscript` (+ `.txt`) | vendor | un script par média, **sans repli** (mmc 0 = SD, mmc 1 = eMMC) | ~600 o |
+| `uEnv.ini` | vendor | DTB + bootargs lisibles ; non lu par notre autoscript (hérité du vendor) | ~270 o |
+| `extlinux/extlinux.conf` + `nixos/*` | mainline | écrit par `nixos-install`, chemins relatifs à `/boot/extlinux` | 63 Mo |
 
-| fichier | rôle | ordre de grandeur |
-|---|---|---|
-| `uImage.multi` | noyau + initrd, **le seul chargé au boot** | 63 Mo |
-| `boot.scr` / `s905_autoscript` | script U-Boot (mkimage, même contenu) | 636–744 o |
-| `s905_autoscript.txt` | source lisible du script | idem |
-| `uEnv.ini` | DTB + bootargs lisibles ; **non lu** par notre autoscript (hérité du vendor) | 112–220 o |
-| `meson-gxl-s905x-p212.dtb` | DTB chargé à `0x1000000` | 41 Ko |
-| `uImage` / `Image` / `initrd` | noyau et initrd séparés, jamais chargés par l'autoscript actuel | 38 / 38 / 25 Mo |
+Total vendor ≈ 121 Mo, sous les 488 Mio de `p1`, sans le conteneur `-T multi`
+(63 Mo) qui n'est plus produit et que ce chargeur relisait faux.
 
-Total ≈ 165 Mo : cela tient dans les 488 Mio de `p1` avec ~300 Mo de marge.
-Un noyau plus gros (kiosque) rapprocherait de la limite.
-
-Le script généré (`n5-boot.nix:28-47`) essaie `mmc 0:1` puis `mmc 1:1` :
-
-```text
-setenv mmcdev 0
-if fatload mmc 0:1 ${uimage_addr} uImage.multi; then
-  setenv mmcdev 0
-else
-  setenv mmcdev 1
-  fatload mmc 1:1 ${uimage_addr} uImage.multi
-fi
-```
-
-`mmc 0` = carte SD, `mmc 1` = eMMC (mesuré : `mmcblk0` = SD, `mmcblk1` =
-`MAG2GC`). **La branche `mmc 1` n'a jamais été exercée** : c'est
-l'hypothèse centrale de tout l'installateur, et le §5 est construit autour
-d'elle.
+`boot.scr` n'est **pas** écrit sur une cible vendor : c'est le nom que lit le
+chargeur mainline avant extlinux, donc il masquerait une migration ultérieure
+avec une charge utile figée. L'image SD, elle, le garde : elle doit démarrer
+avec les deux chargeurs.
 
 ### 1.5 Le script `/etc/n5/install.sh`
 
 `environment.etc."n5/install.sh"` installe le script produit dans le module
-(206 lignes, `bash -n` vérifié par `writeShellScript`). Déroulé réel :
+(`bash -n` vérifié par `writeShellScript`). Déroulé réel :
 
 | # | action |
 |---|---|
-| 1 | arguments : `$1` = disque (`/dev/mmcblk1`), `$2` = sauvegarde (`/var/lib/n5-backup`) |
-| 2 | refuse si `EUID != 0` |
-| 3 | refuse si `$1` n'est pas un bloc, **ou si le BL33 mainline est absent du store** |
-| 4 | **refuse si `p1`/`p2` n'existent pas** — aucun repartitionnement |
-| 5 | refuse si `start(p1) < 1368064` secteurs (= 668 MiB) |
-| 6 | refuse si la cible est le disque qui porte `/` (comparaison `findmnt` + `lsblk`) |
-| 7 | exige ≥ **64 MiB** libres dans `$2` (la sauvegarde est compressée, §4.1) |
-| 8 | affiche la cible et demande littéralement `YES` sur le terminal |
-| 9 | `dd` des 668 premiers MiB **dans `zstd -3`** → `prefix-668MiB-<stamp>.img.zst`, puis `zstd -t` |
-| 10 | `dd` de `mmcblk1boot0`/`boot1` **si les nœuds existent** (silencieusement sinon) |
-| 11 | `trap cleanup EXIT` : démonte et supprime le répertoire de travail |
-| 12 | `umount p1 p2` (best effort) |
-| 13 | `wipefs -a p1 p2` — supprime les signatures, donc aucun prompt de `mkfs` |
-| 14 | `mkfs.vfat -F 32 -n NIXOS_BOOT p1`, `mkfs.ext4 -L NIXOS_SD p2` |
-| 15 | monte `p2` sur `/mnt/n5`, `p1` sur `/mnt/n5/boot` |
-| 16 | `nixos-install --root /mnt/n5 --system "$target_system" --no-root-passwd` |
-| 17 | contrôle `extlinux/extlinux.conf` (`LINUX`/`INITRD` en `/nixos/`), supprime un `boot.scr` résiduel |
-| 18 | vérifie la FAT par **démontage / remontage en lecture seule** + `blockdev --flushbufs`, compte les noyaux |
-| 19 | relit le FIP installé (`dd skip=1 count=2047`), l'extrait (`gxlimg -t fip -e`) et **sauve les composants** dans `components-<stamp>/` + `SHA256SUMS` |
-| 20 | chiffre le BL33 du store (`gxlimg -t bl3x -c`), assemble le FIP, **ré-extrait et `cmp`** les BL2/BL30/BL31 — écart = aucune écriture |
-| 21 | `dd of=$disk bs=512 seek=1 conv=fsync,notrunc`, relit le média et `cmp` ; affiche la commande de restauration |
-| 22 | message « retirer la carte SD puis démarrer sur la eMMC » |
+| 1 | arguments : `--vendor` / `--mainline` (défaut : le schéma de la cible), `--no-bl33`, puis disque (`/dev/mmcblk1`) et sauvegarde (`/var/lib/n5-backup`) |
+| 2 | **refuse** un schéma différent de celui déclaré par la cible, `--no-bl33` hors mainline, et l'absence de `mkimage` (vendor) ou `gxlimg` (mainline) — avant toute lecture du média |
+| 3 | refuse si `EUID != 0` |
+| 4 | refuse si `$1` n'est pas un bloc |
+| 5 | refuse si `p1`/`p2` n'existent pas — aucun repartitionnement |
+| 6 | refuse si `start(p1) < 1368064` secteurs (= 668 MiB) |
+| 7 | refuse si la cible est le disque qui porte `/` (comparaison `findmnt` + `lsblk`) |
+| 8 | exige ≥ **64 MiB** libres dans `$2` (la sauvegarde est compressée, §4.1) |
+| 9 | affiche cible, sauvegarde et schéma, puis demande littéralement `YES` |
+| 10 | `dd` des 668 premiers MiB **dans `zstd -3`** → `prefix-668MiB-<stamp>.img.zst`, puis `zstd -t` |
+| 11 | `dd` de `mmcblk1boot0`/`boot1` **si les nœuds existent** |
+| 12 | `trap cleanup EXIT` : démonte et supprime le répertoire de travail |
+| 13 | `umount p1 p2`, `wipefs -a p1 p2`, `NIXOS_BOOT` en FAT32, racine en ext4 avec l'étiquette de la cible |
+| 14 | monte `p2` sur `/mnt/n5`, `p1` sur `/mnt/n5/boot` |
+| 15 | `nixos-install --root /mnt/n5 --system "$target_system" --no-root-passwd` |
+| 16 | contrôle d'étiquette : la racine du fstab installé == `nixelec.rootLabel` de la cible |
+| 17a | **vendor** : `toplevel=$(readlink -f /mnt/n5/nix/var/nix/profiles/system)`, exige `init`, `kernel`, `initrd` et `dtbs/<dtb>` |
+| 18a | génère `uEnv.ini`, les deux autoscripts, `uImage` et `uInitrd` (`mkimage`), copie `Image`/`initrd`/DTB sur `p1` |
+| 19a | démonte et remonte `p1` en lecture seule, `cmp` des 10 fichiers, et `init=` identique dans `uEnv.ini` et les deux autoscripts, égal au profil `system` |
+| 17b | **mainline** : exige `extlinux/extlinux.conf` avec `LINUX`/`INITRD` vers `nixos/` (forme relative du générateur), retire `boot.scr`/`uImage`/`uInitrd`/`uEnv.ini` résiduels |
+| 18b | démonte et remonte `p1` en lecture seule, compte les noyaux sous `/boot/nixos` |
+| 19b | relit le FIP installé (`dd skip=1 count=2047`), l'extrait (`gxlimg -t fip -e`) et **sauve les composants** |
+| 20b | chiffre le BL33 du store (`gxlimg -t bl3x -c`), assemble le FIP, **ré-extrait et `cmp`** les BL2/BL30/BL31 — écart = aucune écriture |
+| 21b | `dd of=$disk bs=512 seek=1 conv=fsync,notrunc`, relit le média et `cmp` — **sauf `--no-bl33`** |
+| 22 | message « retirer la carte SD puis démarrer sur la eMMC », en nommant le schéma |
 
 Points à retenir :
 
@@ -260,14 +247,17 @@ Points à retenir :
   script meurt sur EOF avant tout `dd` ;
 - `$disk` est concaténé en `${disk}p1` : cela ne fonctionne que pour les
   noms `mmcblk*` / `nvme*n1`. `/dev/sda` produirait `/dev/sdap1` et
-  échouerait au test 4, pas au test 3 ;
-- la garde 6 compare des chaînes : passer `/dev/disk/by-id/…` la contourne ;
-- **tous** les refus (étapes 2 à 7) précèdent la première écriture : une erreur
-  du script ne laisse jamais la eMMC à moitié traitée ;
-- les étapes 19-21 sont les seules qui touchent la zone du bootloader, et elles
-  viennent **en dernier**, après une installation vérifiée. Le pire cas d'une
-  coupure y est une eMMC au système installé mais non amorçable — réparable par
-  la carte SD à FIP ou par un second passage de l'installateur.
+  échouerait au test 5, pas au test 4 ;
+- la garde 7 compare des chaînes : passer `/dev/disk/by-id/…` la contourne ;
+- le refus de schéma (étape 2) est le premier : il tombe avant le contrôle
+  EUID, avant le bloc, avant le `dd`. Un script construit pour une cible
+  `vendor` ne peut pas écrire de BL33, même si l'opérateur le demande ;
+- en **vendor**, aucun `boot.scr` n'est écrit (le mainline le lit avant
+  extlinux : il masquerait une migration) et `extlinux/` n'est pas créé ;
+- en **mainline**, les étapes 19b-21b sont les seules qui touchent la zone du
+  bootloader, et elles viennent **en dernier**, après une installation
+  vérifiée. Le pire cas d'une coupure y est une eMMC au système installé mais
+  non amorçable — réparable par la carte SD ou par un second passage.
 
 ### 1.6 Ce que fait `nixos-install` ici
 
@@ -284,14 +274,16 @@ Avec `--root` et `--system` (nixpkgs `nixos-install.sh`) :
    (`meson64-installer.nix:111-114`) ;
 4. `touch /mnt/n5/etc/NIXOS` ;
 5. étape « installing the boot loader » : `nixos-enter` lance l'activation de
-   la cible puis `switch-to-configuration boot`. La cible active
-   `boot.loader.generic-extlinux-compatible` (`modules/boards/magicsee-n5.nix`),
-   donc cette étape écrit `extlinux/extlinux.conf` et, sous `/boot/nixos/`, le
-   noyau, l'initrd et le DTB de la génération. GRUB reste désactivé. Le
-   `Warning: do not know how to make this configuration bootable` produit par
-   les installations précédentes **ne doit plus apparaître** : s'il apparaît,
-   c'est que la cible n'a pas extlinux, et le script s'arrête à l'étape 17
-   (`extlinux.conf absent`) au lieu de laisser une carte muette ;
+   la cible puis `switch-to-configuration boot`. Ce que cela écrit dépend du
+   schéma déclaré par la cible (`nixelec.bootloader`) :
+   - `mainline` : la cible active `boot.loader.generic-extlinux-compatible`,
+     donc `extlinux/extlinux.conf` et, sous `/boot/nixos/`, le noyau, l'initrd
+     et le DTB de la génération. GRUB reste désactivé. Le script s'arrête à
+     l'étape 17b si `extlinux.conf` manque, au lieu de laisser une carte muette ;
+   - `vendor` : aucun chargeur n'est installé, et l'avertissement
+     `Warning: do not know how to make this configuration bootable` est
+     **normal** — la charge utile est écrite juste après (étapes 17a-19a), donc
+     une absence d'extlinux n'est pas une erreur ici ;
 6. `--no-root-passwd` : pas d'invite de mot de passe, le compte root de la
    cible reste sans mot de passe (l'autologin getty s'en charge).
 
@@ -311,7 +303,11 @@ C'est `magicsee-n5-bringup` tel quel :
 - `nix.enable = false`, `system.disableInstallerTools = true`,
   `register-nix-paths` désactivé (`examples/magicsee-n5-bringup.nix:17-19`) :
   **pas de Nix, pas de `nixos-rebuild`, pas de mise à jour sur place** ;
-- `/` = `by-label/NIXOS_SD`, `/boot` = `by-label/NIXOS_BOOT` ;
+- `/` = `by-label/NIXOS_EMMC` (défaut de `nixelec.rootLabel`, depuis que les
+  étiquettes eMMC et SD sont distinctes) ;
+- `/boot` **dépend du schéma** : monté sur `by-label/NIXOS_BOOT` en `mainline`,
+  absent de la configuration en `vendor` (la charge utile vit sur la FAT, lue
+  par le chargeur, pas par le système) ;
 - hostname `magicsee-n5`, autologin root, `serial-getty@ttyAML0` ;
 - noyau 7.0.14 + série `meson-amvdec`, arbre de modules élagué.
 
@@ -385,7 +381,7 @@ invite. C'est ce qui a fait croire à une carte briquée.
 | Clavier/HDMI | **inutiles** | aucune session graphique dans l'installateur |
 | Réseau | **inutile** | `nixos-install` copie depuis le store local |
 | Autre carte SD amorçable insérée | **absente** | l'autoscript teste `mmc 0:1` en premier : une autre carte serait démarrée à la place |
-| Second système portant `NIXOS_SD` | **absent** | deux disques de même étiquette rendent `/dev/disk/by-label` indéterminé |
+| Second système portant l'étiquette de racine de la cible (`NIXOS_EMMC`) | **absent** | deux disques de même étiquette rendent `/dev/disk/by-label` indéterminé |
 
 À vérifier avant de commencer, sur la boîte d'origine : `p1` doit commencer
 à 668 MiB. Si la eMMC a déjà reçu une image disque complète (offset 0), le
@@ -574,17 +570,19 @@ Attendu, dans l'ordre :
 
 ```text
 reading s905_autoscript
-  744 bytes read in …
+  … bytes read in …
 ## Executing script at 01020000
-reading uImage.multi
-  63xxxxxx bytes read in … ms (1x.x MiB/s)
+reading uImage
+  38… bytes read in … ms (… MiB/s)
+reading uInitrd
+  25… bytes read in … ms (… MiB/s)
 reading meson-gxl-s905x-p212.dtb
-  40957 bytes read in 9 ms (4.3 MiB/s)
+  41105 bytes read in … ms (… MiB/s)
 Booting NixOS from mmc 0:1
 ## Booting kernel from Legacy Image at 20000000 ...
-   Image Name:   NixOS multi
-   Image Type:   AArch64 Linux Multi-File Image (uncompressed)
-## Loading init Ramdisk from multi component Legacy Image at 20000000 ...
+   Image Name:   NixOS
+   Image Type:   AArch64 Linux Kernel Image (uncompressed)
+## Loading init Ramdisk from Legacy Image at 13000000 ...
 Starting kernel ...
 ```
 
@@ -628,14 +626,16 @@ nix-store -qR /run/current-system | grep -c 'nixos-system-magicsee-n5'
 ### P4 — installation
 
 ```bash
-/etc/n5/install.sh
+/etc/n5/install.sh            # vendor, le schéma de la cible par défaut
 ```
 
-Attendu :
+Attendu (schéma vendor) :
 
 ```text
+schéma : vendor (cible configurée vendor)
 target: /dev/mmcblk1 (p1=/dev/mmcblk1p1, p2=/dev/mmcblk1p2)
 backup: /var/lib/n5-backup
+schéma: vendor ; la charge utile de la cible vient du toplevel installé
 Type YES to overwrite p1/p2: YES
 668+0 records in
 668+0 records out
@@ -643,33 +643,46 @@ Type YES to overwrite p1/p2: YES
 installing the boot loader...
 Warning: do not know how to make this configuration bootable; please enable a boot loader.
 installation finished!
-installed; remove the SD card and boot from eMMC
+charge utile vérifiée : 10 fichiers, init=/nix/store/…-nixos-system-…/init
+installation terminée (schéma vendor) ; retirer la carte SD puis démarrer sur la eMMC
 ```
 
+En mainline, les trois dernières lignes deviennent
+`extlinux installé : 1 noyau(x) sous /boot/nixos`, l'écriture du FIP (ou
+`--no-bl33 : FIP intact…`), et le même message final avec `mainline`.
+
 - **C10** : l'avertissement `do not know how to make this configuration
-  bootable` est **normal** (aucun chargeur configuré) ; toute autre erreur
-  arrête le script avant le `cp` et laisse `p1` vide.
+  bootable` est **normal en vendor** (aucun chargeur installé, la charge utile
+  suit) ; en mainline, il signalerait une cible sans extlinux, et le script
+  s'arrête à l'étape 17b. Toute autre erreur arrête le script avant d'écrire la
+  charge utile, et `p1` reste vide.
+- **C10 bis** : en vendor, `init=` de `uEnv.ini` et des deux autoscripts doit
+  être **le même** et égal au profil `system` de la cible — c'est la seule
+  preuve que la charge utile amorce le système installé, pas celui de
+  l'installateur.
 - **C11** : `mount | grep /mnt/n5` ne rend rien après la sortie (le `trap` a
   démonté). Un montage résiduel signalerait une sortie par signal.
 
 ### P5 — vérification sans redémarrer
 
 ```bash
-blkid /dev/mmcblk1p1 /dev/mmcblk1p2        # NIXOS_BOOT vfat / NIXOS_SD ext4
+blkid /dev/mmcblk1p1 /dev/mmcblk1p2        # NIXOS_BOOT vfat / NIXOS_EMMC ext4
 mkdir -p /mnt/p1 /mnt/p2
 mount -o ro /dev/mmcblk1p1 /mnt/p1
 mount -o ro /dev/mmcblk1p2 /mnt/p2
-ls -l /mnt/p1                               # 9 fichiers, mêmes tailles que P0
-diff -r /etc/n5/target-boot /mnt/p1         # aucune sortie
-cat /mnt/p1/uEnv.ini
+ls -l /mnt/p1                               # vendor : 10 fichiers ; mainline : extlinux/ + nixos/
+cat /mnt/p1/uEnv.ini                        # vendor seulement
+grep -o 'init=[^ "]*' /mnt/p1/s905_autoscript.txt   # même init= que uEnv.ini
 ls -l /mnt/p2/nix/var/nix/profiles/system   # -> /nix/store/…-nixos-system-magicsee-n5-…
 ls /mnt/p2/nix/store | wc -l                # plusieurs centaines
 umount /mnt/p1 /mnt/p2
 ```
 
-- **C12** : `uEnv.ini` de la **cible** porte `root=LABEL=NIXOS_SD` et
-  `init=/nix/store/…-nixos-system-magicsee-n5-…/init` — pas
-  `N5_INSTALL`, pas `n5-installer`.
+- **C12** : en vendor, `uEnv.ini` de la **cible** porte
+  `root=LABEL=NIXOS_EMMC` et `init=/nix/store/…-nixos-system-magicsee-n5-…/init`
+  — pas `N5_INSTALL`, pas `n5-installer` — et le même `init=` se relit dans
+  `s905_autoscript.txt` et `emmc_autoscript.txt`. En mainline, `extlinux.conf`
+  porte `LINUX ../nixos/…` et `APPEND init=…`.
 - **C13** : le profil `system` de la cible pointe sur un chemin de store
   **présent** dans `/mnt/p2/nix/store` (sinon la clôture n'a pas été copiée et
   le boot finira en panique `Attempted to kill init`).
@@ -682,15 +695,17 @@ poweroff
 # couper l'alimentation 10 s, remettre
 ```
 
-Attendu :
+Attendu (schéma vendor, payload séparé) :
 
 ```text
-reading s905_autoscript          ← lu depuis la eMMC cette fois
+reading emmc_autoscript          ← lu depuis la eMMC cette fois
 ## Executing script at 01020000
-reading uImage.multi
+reading uImage
+reading uInitrd
+reading meson-gxl-s905x-p212.dtb
 Booting NixOS from mmc 1:1       ← LA ligne qui compte
 …
-Kernel command line: … root=LABEL=NIXOS_SD rootwait rw init=/nix/store/…-nixos-system-magicsee-n5-…/init
+Kernel command line: … root=LABEL=NIXOS_EMMC rootwait rw init=/nix/store/…-nixos-system-magicsee-n5-…/init
 mmcblk1: mmc1:0001 MAG2GC 14.6 GiB
 [root@magicsee-n5:~]#
 ```
@@ -700,13 +715,13 @@ Puis, dans la cible :
 ```bash
 findmnt -n -o SOURCE /          # /dev/mmcblk1p2
 lsblk                           # aucun mmcblk0 : la SD est absente
-cat /proc/cmdline               # root=LABEL=NIXOS_SD + init=…-bringup-…
+cat /proc/cmdline               # root=LABEL=NIXOS_EMMC + init=…-magicsee-n5-…
 hostname                        # magicsee-n5
 ```
 
-- **C14** : `Booting NixOS from mmc 1:1` — la branche de repli de
-  l'autoscript fonctionne, donc le vendor U-Boot lit `s905_autoscript` puis
-  `uImage.multi` sur la eMMC.
+- **C14** : `Booting NixOS from mmc 1:1` — l'autoscript épinglé au média eMMC
+  (`emmc_autoscript`, `fatload mmc 1:1`) fonctionne, donc le vendor U-Boot lit
+  bien les fichiers de la FAT de la eMMC.
 - **C15** : `findmnt` = `/dev/mmcblk1p2` **et** `lsblk` sans `mmcblk0`.
   C'est la conjonction des deux qui prouve le boot eMMC : la ligne U-Boot
   seule pourrait venir d'une SD mal lue, et `findmnt` seul ne dit pas d'où
@@ -723,15 +738,12 @@ l'hypothèse d'un état laissé en RAM par l'installateur.
 
 Remettre la SD et démarrer : la boîte doit repartir sur `mmc 0:1` et rendre
 l'invite `n5-installer`. Cela prouve que la priorité SD > eMMC est bien
-celle du script, et que P6 ne doit rien au hasard.
+celle du chargeur, et que P6 ne doit rien au hasard.
 
-Variante pour isoler la branche `mmc 1` **sans** retirer la carte : renommer
-`uImage.multi` sur la FAT de la SD, démarrer, observer `Booting NixOS from
-mmc 1:1` alors que la SD est présente, puis remettre le nom.
-
-```bash
-mren -i /dev/sdXp1 ::/uImage.multi ::/uImage.multi.bak   # et l'inverse au retour
-```
+Il n'existe plus de variante « renommer le fichier pour forcer le repli » :
+chaque média porte son propre autoscript (`s905_autoscript` pour `mmc 0`,
+`emmc_autoscript` pour `mmc 1`) et **aucun ne tente l'autre média**. Pour
+exercer `mmc 1`, il faut retirer la SD (P6).
 
 ### Récapitulatif des points de contrôle
 
@@ -746,9 +758,10 @@ mren -i /dev/sdXp1 ::/uImage.multi ::/uImage.multi.bak   # et l'inverse au retou
 | C7 | P3 | `start(p1)` ≥ 1368064 |
 | C8 | P3 | clôture cible présente dans le store |
 | C9 | P3 | ≥ 800 MiB libres dans `/var/lib` |
-| C10 | P4 | `installation finished!` + avertissement chargeur |
+| C10 | P4 | `installation finished!` + avertissement chargeur (normal en vendor) |
+| C10 bis | P4 | vendor : `init=` identique dans `uEnv.ini` et les deux autoscripts, == profil `system` |
 | C11 | P4 | plus aucun montage sous `/mnt/n5` |
-| C12 | P5 | `uEnv.ini` cible = `NIXOS_SD` + `init=…-bringup-…` |
+| C12 | P5 | vendor : `uEnv.ini` cible = `NIXOS_EMMC` + `init=…-magicsee-n5-…` ; mainline : `extlinux.conf` avec `LINUX ../nixos/…` |
 | C13 | P5 | profil `system` résolu dans le store de `p2` |
 | C14 | P6 | `Booting NixOS from mmc 1:1` |
 | C15 | P6 | `findmnt` = `mmcblk1p2` **et** pas de `mmcblk0` |
@@ -778,12 +791,15 @@ Chaque ligne se distingue par sa **signature**, pas par une intuition.
 | E9 | `nixos-install` | `path '/nix/store/…' is not valid` | clôture cible absente du store de l'image | C8 : `nix-store -qR /run/current-system \| grep bringup` |
 | E10 | `nixos-install` | `path /mnt/n5 should have permissions 755` | `umask` exotique au moment du `mkdir` | `stat -c %a /mnt/n5` |
 | E11 | boot eMMC | après l'échec `mmc 0:1`, **rien** : U-Boot repart sur son `bootcmd` interne / l'ancien système / une invite | le vendor U-Boot ne cherche pas `s905_autoscript` sur `mmc 1:1` — **l'hypothèse non mesurée** | absence de `Booting NixOS from mmc 1:1` alors que `p1` contient bien le fichier (relu depuis la SD ou par `mdir` sur une image de `p1`) |
-| E12 | boot cible | `[FAILED] Failed to start Find NixOS closure` puis `No init= parameter on the kernel command line`, shell d'urgence, `root account is locked` | `init=` absent de la charge utile (artefact périmé) ou `p1` non écrite | `cat` de `uEnv.ini` sur `p1` ; `diff` avec `/etc/n5/target-boot` |
-| E13 | boot cible | `Kernel panic - not syncing: Attempted to kill init!` / `VFS: Cannot open root device "LABEL=NIXOS_SD"` | `init=` pointe un chemin absent du store de `p2`, ou label `NIXOS_SD` manquant | `blkid mmcblk1p2` ; `ls /mnt/p2/nix/store/<hash>-nixos-system-magicsee-n5-*` (C13) |
+| E12 | boot cible | `[FAILED] Failed to start Find NixOS closure` puis `No init= parameter on the kernel command line`, shell d'urgence, `root account is locked` | `init=` absent de la charge utile, ou `p1` non écrite | `cat` de `uEnv.ini` sur `p1` ; `grep -o 'init=[^ "]*'` sur les autoscripts et comparaison au profil `system` |
+| E13 | boot cible | `Kernel panic - not syncing: Attempted to kill init!` / `VFS: Cannot open root device "LABEL=NIXOS_EMMC"` | `init=` pointe un chemin absent du store de `p2`, ou étiquette de racine de la cible manquante | `blkid mmcblk1p2` ; `ls /mnt/p2/nix/store/<hash>-nixos-system-magicsee-n5-*` (C13) |
 | E14 | boot après install | la boîte rend l'invite `n5-installer` | la SD est encore en place : `mmc 0:1` gagne | retirer la SD, refaire P6 |
-| E15 | boot cible | `findmnt` = `mmcblk0p2` alors que l'U-Boot a dit `mmc 1:1` | deux disques portent `NIXOS_SD` (une image SD normale a été laissée insérée) | `blkid \| grep NIXOS_SD` |
+| E15 | boot cible | `findmnt` = `mmcblk0p2` alors que l'U-Boot a dit `mmc 1:1` | deux disques portent l'étiquette de racine de la cible (une image SD construite pour cette unité a été laissée insérée) | `blkid \| grep -c NIXOS_EMMC` (attendu : 1) |
 | E16 | console | aucune sortie UART, ou caractères illisibles | mauvais débit (115200 8N1) ou adaptateur 5 V | tester avec la SD de référence connue bonne |
 | E17 | script | `read -r -p` rend la main immédiatement, code 1 | script lancé sans terminal (pas de `YES` possible) | `tty` dans le shell courant |
+| E18 | script | `refus : schéma 'mainline' demandé, cible configurée 'vendor'` | drapeau qui ne correspond pas à `nixelec.bootloader` de la cible | relire la configuration de la cible ; ne pas forcer le drapeau |
+| E19 | script | `refus : --no-bl33 n'a de sens qu'en schéma mainline` | drapeau appliqué à une cible vendor | retirer le drapeau |
+| E20 | script, vendor | `uEnv.ini : init='…', attendu='…'` ou `relecture différente de l'écrit : …` | charge utile construite depuis un autre toplevel, ou copie FAT infidèle | `readlink -f /mnt/n5/nix/var/nix/profiles/system` ; `df` sur `p1` |
 
 Deux modes de panne sont **structurels** et méritent d'être reconnus comme
 tels plutôt que debuggués : E11 (le vendor U-Boot ne sait peut-être pas
