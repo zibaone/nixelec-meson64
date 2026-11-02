@@ -71,26 +71,12 @@
 
   boot.loader.grub.enable = lib.mkForce false;
 
-  # Le BL33 mainline (p212) sait faire de l'extlinux : chaque génération
-  # NixOS écrit `extlinux/extlinux.conf` + son noyau et son initrd sous
-  # `/boot/nixos/`, et le chargeur les trouve tout seul. C'est ce qui remplace
-  # la charge utile épinglée (`boot.scr` + `uImage`/`uInitrd` à plat) et rend
-  # `nixos-rebuild switch` maître de l'amorçage — **à une condition, mesurée le
-  # 2026-11-01** : `NIXOS_BOOT` doit être monté sur `/boot`. Sans le montage,
-  # `switch` écrit dans l'ext4 et la FAT garde l'entrée du dernier `dd` ; c'est
-  # le maillon manquant de la Spec 03 (`docs/specs/03-installateur-deux-schemas.md`).
-  #
-  # `mkDefault` et non `mkForce` : l'image SD (`meson64-sd.nix`) force `false`,
-  # parce qu'une SD se démarre encore avec le U-Boot vendor, qui ne connaît
-  # pas extlinux.
-  boot.loader.generic-extlinux-compatible.enable = lib.mkDefault true;
-
-  # p1 fait 488 Mio et chaque génération y coûte noyau + initrd (~63 Mo,
-  # mesurés : Image 38,4 Mio, initrd 24,0 Mio). Sans limite, la septième
-  # reconstruction remplit la partition et `nixos-rebuild` échoue en pleine
-  # écriture. Trois générations = ~190 Mo, avec de la marge pour le reste.
-  boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkForce 3;
-
+  # L'amorçage n'est **pas** décidé ici : la même N5 peut être restée sur son
+  # U-Boot vendor ou avoir reçu le BL33 mainline. C'est `nixelec.bootloader`
+  # (`modules/family/meson64.nix`) qui porte ensemble extlinux, le montage de
+  # `NIXOS_BOOT` sur `/boot` et la forme de la charge utile ; l'hôte qui désigne
+  # son unité pose `nixelec.bootloader = "mainline"`, les autres gardent le
+  # défaut `vendor` (voir `docs/specs/03-installateur-deux-schemas.md`).
 
   boot.kernelParams = lib.mkForce [
     "console=ttyAML0,115200n8"

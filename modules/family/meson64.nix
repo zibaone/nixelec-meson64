@@ -46,6 +46,44 @@ in
     '';
   };
 
+  # Schéma d'amorçage de l'**unité**, pas de la carte : la même N5 peut être
+  # restée sur son U-Boot vendor ou avoir reçu le BL33 mainline. Le
+  # discriminant est donc l'état du chargeur, et c'est la configuration cible
+  # qui le déclare.
+  #
+  # L'option porte **ensemble** les trois pièces qui doivent rester cohérentes :
+  #   - `boot.loader.generic-extlinux-compatible` (qui écrit `extlinux.conf` et
+  #     les générations sous `/boot/nixos`) ;
+  #   - le montage de `NIXOS_BOOT` sur `/boot` — sans lui, `switch` écrit dans
+  #     l'ext4 et la FAT garde l'entrée du dernier `dd` ;
+  #   - la forme de la charge utile : épinglée (`uImage`/`uInitrd`/autoscripts/
+  #     `uEnv.ini`) pour vendor, aucune pour mainline. Cette troisième pièce est
+  #     appliquée là où la charge utile naît — la branche vendor de
+  #     `install.sh` pour une unité nue, `nixos-install` pour une unité
+  #     mainline —, pas ici : `mkBootFiles` reste la source unique des deux
+  #     formes, et une image SD doit rester démarrable par les deux chargeurs.
+  #
+  # Défaut `vendor` : une configuration qui ne désigne pas explicitement son
+  # unité ne doit **jamais** faire écrire le secteur 1 (FIP) ni supprimer
+  # `boot.scr` sur une carte qu'on n'a pas désignée. `mainline` se pose par
+  # hôte (`nixelec.bootloader = "mainline"`), et seulement sur une unité dont
+  # le passage au BL33 a été fait.
+  options.nixelec.bootloader = lib.mkOption {
+    type = lib.types.enum [
+      "vendor"
+      "mainline"
+    ];
+    default = "vendor";
+    description = ''
+      Schéma d'amorçage de l'unité : `vendor` (U-Boot d'origine, charge utile
+      épinglée sur `NIXOS_BOOT`) ou `mainline` (BL33 U-Boot, `extlinux.conf`
+      écrit par chaque génération, `NIXOS_BOOT` monté sur `/boot`).
+
+      Les deux ne cohabitent pas sur une carte : l'installateur refuse un
+      schéma différent de celui déclaré ici, avant la première écriture.
+    '';
+  };
+
   options.nixelec.vpu = {
     enable = lib.mkEnableOption "Amlogic meson VPU";
 
@@ -123,6 +161,39 @@ in
   config = lib.mkMerge [
     (lib.mkIf (cfg.kernelPackage != null) {
       boot.kernelPackages = lib.mkForce (pkgs.linuxPackagesFor cfg.kernelPackage);
+    })
+
+    # Les trois pièces du schéma, ensemble. `mkDefault` : un hôte peut encore
+    # poser une priorité supérieure, mais il ne peut pas hériter d'un mélange
+    # silencieux (extlinux sans montage, ou montage sans extlinux).
+    (lib.mkIf (cfg.bootloader == "mainline") {
+      boot.loader.generic-extlinux-compatible.enable = lib.mkDefault true;
+
+      # p1 fait 488 Mio et chaque génération y coûte noyau + initrd (~63 Mo,
+      # mesurés : Image 38,4 Mio, initrd 24,0 Mio). Sans limite, la septième
+      # reconstruction remplit la partition et `nixos-rebuild` échoue en pleine
+      # écriture. Trois générations = ~190 Mo, avec de la marge pour le reste.
+      boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkDefault 3;
+
+      # Sans ce montage, `switch` écrit `extlinux.conf` et les générations dans
+      # l'ext4 de la racine : la FAT garde l'entrée du dernier `dd` et le
+      # chargeur ne suit plus les générations. C'est le maillon qui rend le
+      # mainline « où `switch` suffit ».
+      fileSystems."/boot" = {
+        device = "/dev/disk/by-label/NIXOS_BOOT";
+        fsType = "vfat";
+      };
+    })
+
+    (lib.mkIf (cfg.bootloader == "vendor") {
+      # Un chargeur vendor ne lit pas extlinux : l'activer n'écrirait qu'un
+      # fichier que personne ne lit, et donnerait l'illusion d'un `switch`
+      # maître de l'amorçage.
+      #
+      # `mkForce` et non `mkDefault` : `nixbian` (nix/parts/nixos-module.nix)
+      # pose `enable = true` en priorité normale — c'est le schéma par défaut
+      # de ses images SD. Le schéma de l'unité doit trancher, pas cohabiter.
+      boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
     })
 
     {
@@ -213,8 +284,6 @@ in
           exit 1
         '';
       };
-
-      boot.loader.generic-extlinux-compatible.configurationLimit = lib.mkDefault 0;
 
       hardware.graphics.enable = lib.mkDefault false;
 

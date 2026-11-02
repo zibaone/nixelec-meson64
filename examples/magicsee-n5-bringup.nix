@@ -14,10 +14,11 @@
     fsType = "ext4";
   };
 
-  fileSystems."/boot" = {
-    device = "/dev/disk/by-label/NIXOS_BOOT";
-    fsType = "vfat";
-  };
+  # `/boot` n'est **pas** déclaré ici : il appartient au schéma d'amorçage.
+  # `nixelec.bootloader = "mainline"` monte `NIXOS_BOOT` dessus (c'est ce qui
+  # fait suivre les générations par `switch`) ; en `vendor`, la FAT n'est pas
+  # montée — la charge utile épinglée y est posée par l'installateur et relue
+  # par le chargeur vendor, pas par le système.
 
   system.disableInstallerTools = true;
   nix.enable = false;

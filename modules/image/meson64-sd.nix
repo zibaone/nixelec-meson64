@@ -27,7 +27,13 @@ in
   nixelec.rootLabel = lib.mkDefault config.sdImage.rootVolumeLabel;
 
   boot.loader.grub.enable = lib.mkForce false;
-  boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
+
+  # Pas d'extlinux forcé ici : le schéma vient de `nixelec.bootloader`, comme
+  # sur une cible installée. Une image SD doit rester amorçable par le U-Boot
+  # vendor (charge utile épinglée dans la FAT, que `mkBootFiles` continue de
+  # produire) *et* par le BL33 mainline (`extlinux/extlinux.conf` de la même
+  # charge utile) ; c'est le drapeau d'exécution qui doit suivre l'unité, pas
+  # le contenu du média.
 
   image.fileName = lib.mkDefault "nixelec-meson64-${config.hardware.nixbian.board}.img";
 
