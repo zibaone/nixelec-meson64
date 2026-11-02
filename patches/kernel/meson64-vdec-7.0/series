@@ -6,3 +6,4 @@ amlogic-0122-media-amlogic-amvdec-add-HEVC-decoding.patch
 amlogic-0123-media-amlogic-amvdec-add-VP9-decoding.patch
 amlogic-0127-media-amlogic-amvdec-export-HEVC-basic-layout-compre.patch
 amlogic-0128-TESTING-media-amlogic-amvdec-allow-4K-HEVC-on-GXBB.patch
+amlogic-0129-media-amlogic-amvdec-h264-free-scan-copy.patch
