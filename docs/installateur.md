@@ -199,9 +199,12 @@ réellement installé (§1.5) :
 Total vendor ≈ 121 Mo, sous les 488 Mio de `p1`, sans le conteneur `-T multi`
 (63 Mo) qui n'est plus produit et que ce chargeur relisait faux.
 
-`boot.scr` n'est **pas** écrit sur une cible vendor : c'est le nom que lit le
-chargeur mainline avant extlinux, donc il masquerait une migration ultérieure
-avec une charge utile figée. L'image SD, elle, le garde : elle doit démarrer
+`boot.scr` n'est **pas** écrit sur une cible vendor : c'est le script de repli
+du chargeur mainline, essayé après `extlinux/extlinux.conf`
+(`scan_dev_for_boot` de `distro_bootcmd` lance `scan_dev_for_extlinux` puis
+`scan_dev_for_scripts`). Sur une unité vendor il ne serait jamais lu ; après
+migration il ferait démarrer une charge utile figée quand extlinux échoue, au
+lieu d'échouer franchement. L'image SD, elle, le garde : elle doit démarrer
 avec les deux chargeurs.
 
 ### 1.5 Le script `/etc/n5/install.sh`
@@ -252,8 +255,10 @@ Points à retenir :
 - le refus de schéma (étape 2) est le premier : il tombe avant le contrôle
   EUID, avant le bloc, avant le `dd`. Un script construit pour une cible
   `vendor` ne peut pas écrire de BL33, même si l'opérateur le demande ;
-- en **vendor**, aucun `boot.scr` n'est écrit (le mainline le lit avant
-  extlinux : il masquerait une migration) et `extlinux/` n'est pas créé ;
+- en **vendor**, aucun `boot.scr` n'est écrit (c'est le repli du mainline,
+  essayé après extlinux : il ne doit pas exister sur une unité vendor, et après
+  migration il masquerait un échec d'extlinux par une génération figée) et
+  `extlinux/` n'est pas créé ;
 - en **mainline**, les étapes 19b-21b sont les seules qui touchent la zone du
   bootloader, et elles viennent **en dernier**, après une installation
   vérifiée. Le pire cas d'une coupure y est une eMMC au système installé mais

@@ -398,9 +398,12 @@ let
       mkimage -A arm64 -O linux -T ramdisk -C gzip -n "NixOS initrd" \
         -d "$payload/initrd" "$payload/uInitrd"
 
-      # Pas de `boot.scr` : c'est le nom que lit le chargeur mainline, avant
-      # extlinux. Sur une unité vendor il ne serait jamais lu, et après une
-      # migration il masquerait extlinux avec une charge utile figée.
+      # Pas de `boot.scr` : c'est le script de repli du chargeur mainline,
+      # essayé APRÈS `extlinux/extlinux.conf` (mesuré dans
+      # `include/config_distro_bootcmd.h` du BL33 : `scan_dev_for_boot` lance
+      # `scan_dev_for_extlinux` puis `scan_dev_for_scripts`). Sur une unité
+      # vendor il ne serait jamais lu ; après migration, il ferait démarrer une
+      # charge utile figée quand extlinux échoue, au lieu d'échouer franchement.
       sync
       cp -f "$payload/Image" "$payload/initrd" "$payload/$dtb_base" \
         "$payload/uImage" "$payload/uInitrd" \
@@ -460,8 +463,10 @@ let
         echo "extlinux.conf sans INITRD vers nixos/<génération>" >&2
         exit 1
       fi
-      # Une charge utile épinglée sur p1 masquerait extlinux (ce chargeur lit
-      # `boot.scr` avant) : en mainline, elle n'a rien à faire là.
+      # U-Boot mainline essaie `extlinux/extlinux.conf` d'abord, puis
+      # `boot.scr` en repli : un `boot.scr` résiduel ferait démarrer une charge
+      # utile figée quand extlinux échoue, au lieu d'échouer franchement. En
+      # mainline, elle n'a rien à faire là.
       for f in boot.scr uImage uInitrd uEnv.ini; do
         if [ -e "/mnt/n5/boot/$f" ]; then
           echo "charge utile vendor sur une cible mainline : $f supprimé" >&2
