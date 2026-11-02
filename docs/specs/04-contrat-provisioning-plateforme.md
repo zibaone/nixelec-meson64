@@ -103,12 +103,19 @@ Données :
 Fonctions :
 
 ```
+platform_tools_check      → outils de la branche, avant tout accès au média
 platform_detect           → disque, partitions, offsets (lecture seule)
-platform_guard            → vetos propres à la famille
+platform_guard            → vetos propres à la famille (offset du chargeur)
+platform_backup_extra     → médias du chargeur (boot0/boot1 sur meson64)
 platform_write_boot       → écrit la chaîne d'amorçage depuis le store installé
 platform_verify_boot      → relit, compare, et dit si l'amorçage est prouvé
 platform_write_bootloader → écrit le chargeur seul (migration, hors installation)
 ```
+
+Les deux premières précèdent la garde root (un outil manquant après
+`nixos-install` laisserait une eMMC sans charge utile) ; `platform_guard` et
+`platform_backup_extra` sont l'équivalent, côté famille, des gardes et de la
+sauvegarde génériques du moteur.
 
 Le moteur n'a le droit de connaître **aucun** offset, aucun outil, aucun nom de
 fichier propre à une famille.
