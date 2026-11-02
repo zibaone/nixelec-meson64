@@ -76,6 +76,16 @@ Règles :
   `init=`/nom d'hôte.
 - `rootLabel` est confrontée au `fstab` installé avant de conclure (garde
   existante).
+- `rootLabel` est **constante par cible**, jamais par schéma ni par média :
+  `NIXOS_EMMC` pour le kiosque (vendor comme mainline), `NIXOS_SD` pour le
+  bootstrap. Le moteur l'applique **au formatage** ; sur une unité déjà
+  installée, seul un mode `relabel` explicite la change, et il exige que le
+  `fstab` de la génération cible **et** le chargeur la désignent déjà.
+- le plan peut être **épinglé** : `--plan-sha256 <digest>`, ou le digest baké
+  avec le plan. Le moteur refuse un plan dont l'empreinte diffère, **avant tout
+  accès au média**. Le digest couvre schéma, système, étiquette et layout d'un
+  seul coup — inutile d'épingler le système séparément, ce qui rendrait le plan
+  reçu sans objet.
 - `layout` et `bootMib` viennent du provider, pas de l'opérateur.
 
 ### Le provider plateforme
