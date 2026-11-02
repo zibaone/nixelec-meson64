@@ -73,6 +73,23 @@
       sdBootScript = mkAutoscript 0;
       emmcBootScript = mkAutoscript 1;
 
+      # `extlinux/extlinux.conf` sur la FAT : c'est ce qui rend la carte
+      # démarrable quand le BL33 est le mainline (le `boot.scr`/autoscript
+      # ci-dessus est épinglé à la numérotation du U-Boot vendor, où la SD est
+      # `mmc 0`). Sans ce fichier, une SD installateur ne peut plus être
+      # utilisée sur une box déjà migrée : le mainline cherche `extlinux.conf`
+      # et ne trouve que des scripts qui visent `mmc 0:1` = le SDIO.
+      # Les chemins sont relatifs à la racine de la FAT (`/Image`, `/initrd`).
+      extlinuxConf = pkgs.writeText "extlinux.conf" ''
+        DEFAULT nixos
+        LABEL nixos
+          MENU LABEL NixOS nixelec-meson64
+          LINUX /Image
+          INITRD /initrd
+          FDT /${dtbBase}
+          APPEND ${bootArgs}
+      '';
+
       uEnv = pkgs.writeText "uEnv.ini" ''
         dtb_name=/${dtbBase}
         bootargs=${bootArgs}
@@ -80,6 +97,8 @@
     in
     pkgs.runCommand "n5-boot-files" { nativeBuildInputs = [ pkgs.ubootTools ]; } ''
       mkdir -p $out
+      mkdir -p $out/extlinux
+      cp ${extlinuxConf} $out/extlinux/extlinux.conf
       cp ${kernel}/Image $out/Image
       cp ${initrd} $out/initrd
       # `dtb` vient de `hardware.deviceTree.package` : c'est le seul arbre qui

@@ -25,9 +25,16 @@ in
     system = "aarch64-linux";
     specialArgs = {
       n5TargetSystem = targetSystem;
-      n5TargetKernel = self.nixosConfigurations.magicsee-n5-bringup.config.boot.kernelPackages.kernel;
-      n5TargetDtb = self.nixosConfigurations.magicsee-n5-bringup.config.hardware.deviceTree.name;
-      n5TargetBootParams = self.nixosConfigurations.magicsee-n5-bringup.config.boot.kernelParams;
+      # Étiquette que l'installateur doit poser sur la racine de la cible
+      # (`mkfs.ext4 -L`) : elle doit être celle que la cible attend, sinon
+      # stage-1 ne trouve pas sa racine au premier démarrage.
+      n5TargetRootLabel = self.nixosConfigurations.magicsee-n5-bringup.config.nixelec.rootLabel;
+      # BL33 mainline (U-Boot p212) construit dans le jeu croisé x86_64 →
+      # aarch64 : la construction reste native, donc en secondes. L'installateur
+      # l'assemble avec les BL2/BL30/BL31 lus sur la carte cible.
+      n5UbootBl33 = import ../pkgs/uboot-p212-bl33.nix {
+        pkgsX86 = inputs.nixpkgs.legacyPackages.x86_64-linux;
+      };
     };
     modules = [
       self.nixosModules.magicsee-n5
