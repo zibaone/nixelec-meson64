@@ -1,0 +1,39 @@
+From 4c1f0f6b9b0d5f7e2a3c4d5e6f708192a3b4c5d6 Mon Sep 17 00:00:00 2001
+From: Mehdi Zibaoui <mehdi@zibaoui.dev>
+Date: Mon, 2 Nov 2026 14:10:00 +0100
+Subject: [PATCH] media: amlogic: amvdec: h264: free the parser scratch buffer
+
+codec_h264_stop() frees every coherent buffer it allocated, but not
+h264->scan_copy, the cached copy of the current access unit that
+meson_amvdec_codec_h264_scan_copy() allocates with kvmalloc(). The core
+then frees the codec private data with kfree(sess->priv), so the pointer
+is lost and the buffer is never released.
+
+For a 1080p stream the OUTPUT plane is 4 MiB, which kvmalloc() serves
+through kmalloc_order(): the pages are charged to NR_SLAB_UNRECLAIMABLE
+without belonging to any visible slab cache. Every playback session
+therefore lifts Slab/SUnreclaim by ~4 MiB while /proc/slabinfo, vmalloc
+and the per-cgroup accounting stay flat, and neither stopping Kodi nor
+unloading the module returns the memory.
+
+Release the scratch buffer before the core drops the private data.
+kvfree() accepts a NULL pointer, so partially initialised sessions are
+covered too.
+---
+ drivers/media/platform/amlogic/amvdec/codec_h264.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/media/platform/amlogic/amvdec/codec_h264.c b/drivers/media/platform/amlogic/amvdec/codec_h264.c
+--- a/drivers/media/platform/amlogic/amvdec/codec_h264.c
++++ b/drivers/media/platform/amlogic/amvdec/codec_h264.c
+@@ -1663,6 +1663,11 @@
+ 					  h264->colocate_vaddr[i],
+ 					  h264->colocate_paddr[i]);
+ 
++	/* The core frees the private data right after this callback. */
++	kvfree(h264->scan_copy);
++	h264->scan_copy = NULL;
++	h264->scan_copy_size = 0;
++
+ 	return 0;
+ }

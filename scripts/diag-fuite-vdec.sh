@@ -3,9 +3,8 @@
 #
 # Contexte (mesuré le 2026-11-02 sur la N5) : chaque session de décodage
 # matériel laisse ~4 Mio de mémoire noyau non récupérée (« Slab »/« SUnreclaim »
-# qui montent, sans aucun cache visible dans /proc/slabinfo). Le décodage
-# logiciel ne fuit pas. `ffmpeg -hwaccel drm` seul reproduit la fuite : ce n'est
-# ni Kodi ni les greffons.
+# qui montent). Le décodage logiciel ne fuit pas. `ffmpeg -hwaccel drm` seul
+# reproduit la fuite : ce n'est ni Kodi ni les greffons.
 #
 # Ce script sonde, sans recompiler le noyau :
 #   - dma_alloc_attrs / dma_free_attrs            : les tampons cohérents ;
@@ -17,9 +16,30 @@
 # et les piles montrent :
 #   allocation : vb2_dc_alloc -> dma_alloc_attrs -> dma_common_contiguous_remap
 #   libération : amvdec_1_stop -> dma_free_attrs
-# Autrement dit : les tampons de capture alloués par videobuf2-dma-contig sont
-# mappés en vmalloc et **jamais démappés** ; seuls les tampons propres au
-# décodeur sont libérés. 49 tampons par session, ~4 Mio retenus.
+#
+# ATTENTION : `dma_common_free_remap` à zéro ne prouve PAS un remap fuité.
+# Une sonde sur `vmap`/`vunmap` donne 49/49 pour la même session : le noyau
+# défait bien le mapping, par un autre chemin que `dma_common_free_remap`.
+#
+# Ce qui est établi :
+#   - allocations et libérations s'équilibrent en nombre, en taille et en
+#     device (alloc 49 / free 49 ; 11 x 4 Mio, 11 x 2 Mio, 11 x 1 Mio,
+#     11 x 783360, 1 x 8192, 1 x 4096 de part et d'autre) ;
+#   - les caches SLUB ne bougent pas (/proc/slabinfo : pages stables) ;
+#   - VmallocUsed et PageTables sont plats ;
+#   - arrêter Kodi (-228 ko) ou décharger meson_amvdec (-332 ko) ne rend rien ;
+#   - la cgroup kodi-gbm ne voit rien non plus (slab 39 ko).
+# Autrement dit : ~4 Mio par session partent en mémoire noyau non comptabilisée
+# par les caches, dans le contexte du pilote.
+#
+# CAUSE TROUVÉE (sonde `__kvmalloc_node_noprof`) : une seule allocation
+# kvmalloc de 4 194 304 octets par session, et `codec_h264_stop()` ne libère
+# pas `h264->scan_copy` (le noyau libère ensuite `sess->priv`, le pointeur est
+# perdu). kvmalloc sert 4 Mio via kmalloc_order(), donc les pages vont dans
+# NR_SLAB_UNRECLAIMABLE sans cache visible : c'est exactement la signature
+# mesurée. Correctif : amlogic-0129.
+
+
 #
 # Usage : diag-fuite-vdec.sh [sessions] [--pile]
 #   --pile   attache un stacktrace aux sondes remap/free (verbeux).
