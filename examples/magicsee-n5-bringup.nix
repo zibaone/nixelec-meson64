@@ -1,11 +1,16 @@
 {
+  config,
+  ...
+}:
+
+{
   nixelec.vpu.enable = true;
 
   networking.hostName = "magicsee-n5";
   system.stateVersion = "26.05";
 
   fileSystems."/" = {
-    device = "/dev/disk/by-label/NIXOS_SD";
+    device = "/dev/disk/by-label/${config.nixelec.rootLabel}";
     fsType = "ext4";
   };
 

@@ -31,6 +31,21 @@ in
     '';
   };
 
+  # Étiquette de la racine. Une eMMC et une carte SD NixOS se démarrent avec la
+  # même image : si les deux portent la même étiquette, `/dev/disk/by-label/…`
+  # (et donc stage-1) choisit le premier disque énuméré, c'est-à-dire la SD.
+  # Deux étiquettes distinctes rendent le montage déterministe.
+  options.nixelec.rootLabel = lib.mkOption {
+    type = lib.types.str;
+    default = "NIXOS_EMMC";
+    description = ''
+      Étiquette de la partition racine du système installé. Les images SD
+      l'écrasent avec leur `sdImage.rootVolumeLabel` (`NIXOS_SD` par défaut,
+      `N5_INSTALL` pour l'installateur), pour qu'une carte SD insérée ne puisse
+      pas être prise pour la racine de la eMMC.
+    '';
+  };
+
   options.nixelec.vpu = {
     enable = lib.mkEnableOption "Amlogic meson VPU";
 

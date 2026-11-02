@@ -13,13 +13,18 @@ let
     # Chemin complet : le paquet porte les overlays de la carte.
     dtb = "${config.hardware.deviceTree.package}/${config.hardware.deviceTree.name}";
     dtbName = config.hardware.deviceTree.name;
-    rootLabel = config.sdImage.rootVolumeLabel;
+    rootLabel = config.nixelec.rootLabel;
     bootParams = config.boot.kernelParams;
     toplevel = config.system.build.toplevel;
   };
 in
 {
   imports = [ (modulesPath + "/installer/sd-card/sd-image.nix") ];
+
+  # Une image SD est sa propre racine : c'est son étiquette (celle que crée
+  # `sd-image.nix`) qui doit figurer dans les `root=` du payload et de
+  # l'extlinux. La cible eMMC, elle, garde `NIXOS_EMMC` (défaut de l'option).
+  nixelec.rootLabel = lib.mkDefault config.sdImage.rootVolumeLabel;
 
   boot.loader.grub.enable = lib.mkForce false;
   boot.loader.generic-extlinux-compatible.enable = lib.mkForce false;
@@ -40,7 +45,10 @@ in
     compressImage = lib.mkDefault true;
 
     populateFirmwareCommands = ''
-      cp -L ${bootFiles}/* firmware/
+      mkdir -p firmware/extlinux
+      # -r : `extlinux/` est un dossier ; sans lui le mainline ne peut pas
+      # démarrer cette carte (cf. n5-boot.nix).
+      cp -rL ${bootFiles}/. firmware/
     '';
 
     populateRootCommands = "";
