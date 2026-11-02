@@ -65,8 +65,33 @@ données privées. `kvfree(NULL)` étant sûr, les sessions partiellement
 initialisées sont couvertes, et la remise à zéro évite une double
 libération si le rappel est invoqué deux fois.
 
-## Reste à faire
+## Piège de livraison (mesuré)
 
-1. Construire le noyau (aarch64) et l'image HavenOS.
-2. Déployer sur la N5.
-3. Rejouer `scripts/diag-fuite-vdec.sh 3` : `Slab` doit rester plat.
+La série **appliquée** n'est pas celle de ce dépôt : le noyau de `nixbian`
+prend `metadata/nix/patches/kernel/meson64-vdec-7.0/series.conf` de la
+branche `feat/meson64-vdec-7.0`. Ajouter le fichier ici ne change rien au
+build : la dérivation du noyau, `Image` et `meson-amvdec.ko` restaient
+**identiques** (même hash de module), et la fuite persistait après
+déploiement. Il faut ajouter le patch à `series.conf` dans `nixbian`, puis
+remonter les locks (`nixelec-meson64`, puis HavenOS).
+
+Vérification qui tranche : comparer le hash de `meson-amvdec.ko` entre
+l'ancienne génération et la nouvelle. Identique = correctif absent du build,
+inutile de redémarrer.
+
+## Résultat (N5, après déploiement)
+
+Trois sessions à chaud, même sonde :
+
+| compteur | avant | après | delta |
+|---|---|---|---|
+| Slab | 72 208 ko | 72 224 ko | **+16 ko** |
+| SUnreclaim | 46 400 ko | 46 416 ko | +16 ko |
+
+Contre +12 432 ko pour les trois mêmes sessions avant correctif. La mesure
+précédente, juste après le démarrage, donne +1 056 ko sur trois sessions
+(mise en route de Kodi), et non plus ~4 100 ko par session.
+
+Le noyau `Image` est inchangé (le correctif ne touche qu'un module) : c'est
+`meson-amvdec.ko` (`8a4aa00d…` contre `aaa628dd…`) qui porte la correction.
+
