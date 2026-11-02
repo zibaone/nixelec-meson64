@@ -1,5 +1,14 @@
 # Installateur eMMC — image `magicsee-n5-installer`
 
+> **Deux schémas, et cet installateur n'en couvre qu'un (2026-11-01).** Le code
+> actuel installe une cible **mainline** : il exige `extlinux/extlinux.conf`,
+> retire `boot.scr` et écrit le BL33 — il ne produit plus la charge utile
+> épinglée, donc il **ne sait pas** installer une cible restée sur le U-Boot
+> vendor. C'est l'objet de `docs/specs/03-installateur-deux-schemas.md`. Les
+> §1.3 à §1.7 ci-dessous décrivent ce schéma vendor (charge utile, cible
+> bring-up) et restent sa référence ; les §1.8 et suivants décrivent le schéma
+> mainline.
+
 > **Périmé sur la charge utile depuis le 2026-10-31.** Le §« la charge utile »
 > et tous les journaux qui mentionnent `uImage.multi` décrivent l'état d'avant
 > C5/C6 : la charge utile ne produit plus ce fichier, et les deux autoscripts
@@ -213,28 +222,33 @@ d'elle.
 
 ### 1.5 Le script `/etc/n5/install.sh`
 
-`environment.etc."n5/install.sh"` (ligne 116) installe le script produit
-lignes 22-99. Déroulé réel :
+`environment.etc."n5/install.sh"` installe le script produit dans le module
+(206 lignes, `bash -n` vérifié par `writeShellScript`). Déroulé réel :
 
-| # | action | lignes |
-|---|---|---|
-| 1 | arguments : `$1` = disque (`/dev/mmcblk1`), `$2` = sauvegarde (`/var/lib/n5-backup`) | 25-28 |
-| 2 | refuse si `EUID != 0` | 30-33 |
-| 3 | refuse si `$1` n'est pas un bloc | 34-37 |
-| 4 | **refuse si `p1`/`p2` n'existent pas** — aucun repartitionnement | 39-44 |
-| 5 | refuse si `start(p1) < 1368064` secteurs (= 668 MiB) | 46-50 |
-| 6 | refuse si la cible est le disque qui porte `/` (comparaison `findmnt` + `lsblk`) | 52-57 |
-| 7 | exige ≥ 800 MiB libres dans `$2` | 59-64 |
-| 8 | affiche la cible et demande littéralement `YES` sur le terminal | 66-69 |
-| 9 | `dd` des 668 premiers MiB → `prefix-668MiB.img` | 71 |
-| 10 | `dd` de `mmcblk1boot0`/`boot1` **si les nœuds existent** (silencieusement sinon) | 72-76 |
-| 11 | `umount p1 p2` (best effort) | 78-79 |
-| 12 | `wipefs -a p1 p2` — supprime les signatures, donc aucun prompt de `mkfs` | 80 |
-| 13 | `mkfs.vfat -F 32 -n NIXOS_BOOT p1`, `mkfs.ext4 -L NIXOS_SD p2` | 81-82 |
-| 14 | monte `p2` sur `/mnt/n5`, `p1` sur `/mnt/n5/boot`, `trap cleanup EXIT` | 84-92 |
-| 15 | `nixos-install --root /mnt/n5 --system "$target_system" --no-root-passwd` | 94 |
-| 16 | `cp -r "$target_boot"/. /mnt/n5/boot/` puis `sync` | 95-96 |
-| 17 | message « remove the SD card and boot from eMMC », puis démontage par le `trap` | 98, 88-92 |
+| # | action |
+|---|---|
+| 1 | arguments : `$1` = disque (`/dev/mmcblk1`), `$2` = sauvegarde (`/var/lib/n5-backup`) |
+| 2 | refuse si `EUID != 0` |
+| 3 | refuse si `$1` n'est pas un bloc, **ou si le BL33 mainline est absent du store** |
+| 4 | **refuse si `p1`/`p2` n'existent pas** — aucun repartitionnement |
+| 5 | refuse si `start(p1) < 1368064` secteurs (= 668 MiB) |
+| 6 | refuse si la cible est le disque qui porte `/` (comparaison `findmnt` + `lsblk`) |
+| 7 | exige ≥ **64 MiB** libres dans `$2` (la sauvegarde est compressée, §4.1) |
+| 8 | affiche la cible et demande littéralement `YES` sur le terminal |
+| 9 | `dd` des 668 premiers MiB **dans `zstd -3`** → `prefix-668MiB-<stamp>.img.zst`, puis `zstd -t` |
+| 10 | `dd` de `mmcblk1boot0`/`boot1` **si les nœuds existent** (silencieusement sinon) |
+| 11 | `trap cleanup EXIT` : démonte et supprime le répertoire de travail |
+| 12 | `umount p1 p2` (best effort) |
+| 13 | `wipefs -a p1 p2` — supprime les signatures, donc aucun prompt de `mkfs` |
+| 14 | `mkfs.vfat -F 32 -n NIXOS_BOOT p1`, `mkfs.ext4 -L NIXOS_SD p2` |
+| 15 | monte `p2` sur `/mnt/n5`, `p1` sur `/mnt/n5/boot` |
+| 16 | `nixos-install --root /mnt/n5 --system "$target_system" --no-root-passwd` |
+| 17 | contrôle `extlinux/extlinux.conf` (`LINUX`/`INITRD` en `/nixos/`), supprime un `boot.scr` résiduel |
+| 18 | vérifie la FAT par **démontage / remontage en lecture seule** + `blockdev --flushbufs`, compte les noyaux |
+| 19 | relit le FIP installé (`dd skip=1 count=2047`), l'extrait (`gxlimg -t fip -e`) et **sauve les composants** dans `components-<stamp>/` + `SHA256SUMS` |
+| 20 | chiffre le BL33 du store (`gxlimg -t bl3x -c`), assemble le FIP, **ré-extrait et `cmp`** les BL2/BL30/BL31 — écart = aucune écriture |
+| 21 | `dd of=$disk bs=512 seek=1 conv=fsync,notrunc`, relit le média et `cmp` ; affiche la commande de restauration |
+| 22 | message « retirer la carte SD puis démarrer sur la eMMC » |
 
 Points à retenir :
 
@@ -249,7 +263,11 @@ Points à retenir :
   échouerait au test 4, pas au test 3 ;
 - la garde 6 compare des chaînes : passer `/dev/disk/by-id/…` la contourne ;
 - **tous** les refus (étapes 2 à 7) précèdent la première écriture : une erreur
-  du script ne laisse jamais la eMMC à moitié traitée.
+  du script ne laisse jamais la eMMC à moitié traitée ;
+- les étapes 19-21 sont les seules qui touchent la zone du bootloader, et elles
+  viennent **en dernier**, après une installation vérifiée. Le pire cas d'une
+  coupure y est une eMMC au système installé mais non amorçable — réparable par
+  la carte SD à FIP ou par un second passage de l'installateur.
 
 ### 1.6 Ce que fait `nixos-install` ici
 
@@ -266,14 +284,14 @@ Avec `--root` et `--system` (nixpkgs `nixos-install.sh`) :
    (`meson64-installer.nix:111-114`) ;
 4. `touch /mnt/n5/etc/NIXOS` ;
 5. étape « installing the boot loader » : `nixos-enter` lance l'activation de
-   la cible puis `switch-to-configuration boot`. Comme GRUB et extlinux sont
-   désactivés (`mkForce false`, `modules/boards/magicsee-n5.nix:20-21`),
-   `system.build.installBootLoader` reste le script par défaut de nixpkgs,
-   qui imprime
-   `Warning: do not know how to make this configuration bootable; please enable a boot loader.`
-   et sort en 0. Ce n'est donc **pas** une erreur — c'est le comportement
-   attendu, et c'est la même phrase que cite `HavenOS/parts/packages.nix`
-   pour justifier `havenos-n5-boot-payload` ;
+   la cible puis `switch-to-configuration boot`. La cible active
+   `boot.loader.generic-extlinux-compatible` (`modules/boards/magicsee-n5.nix`),
+   donc cette étape écrit `extlinux/extlinux.conf` et, sous `/boot/nixos/`, le
+   noyau, l'initrd et le DTB de la génération. GRUB reste désactivé. Le
+   `Warning: do not know how to make this configuration bootable` produit par
+   les installations précédentes **ne doit plus apparaître** : s'il apparaît,
+   c'est que la cible n'a pas extlinux, et le script s'arrête à l'étape 17
+   (`extlinux.conf absent`) au lieu de laisser une carte muette ;
 6. `--no-root-passwd` : pas d'invite de mot de passe, le compte root de la
    cible reste sans mot de passe (l'autologin getty s'en charge).
 
@@ -302,6 +320,57 @@ reconstruit l'installateur, ou on réécrit la charge utile depuis un système
 qui a Nix (`packages.havenos-n5-boot-payload` côté HavenOS). `nixos-rebuild`
 est structurellement incapable de rendre cette carte bootable : `init=` et
 l'initrd désignent le système que la charge utile amorce.
+
+### 1.8 Le BL33 mainline (dernière étape du script)
+
+Le FIP Amlogic n'est pas portable d'une unité à l'autre : la ROM vérifie
+BL1→BL2 et le BL2 porte le DDR init de la carte. L'installateur ne livre donc
+pas un FIP tout fait — il le fabrique **sur la carte**, avec les composants
+qu'il vient de lire :
+
+| composant | provenance |
+|---|---|
+| BL2, BL30, BL31 | FIP installé, relu au secteur 1 (`dd skip=1 count=2047`) |
+| BL33 | `pkgs/uboot-p212-bl33.nix` — U-Boot mainline 2027.01-rc1 `p212`, commit `3973f3c4d24d` épinglé |
+
+La chaîne, et ce qu'elle garantit :
+
+1. `gxlimg -t fip -e` extrait `bl2.sign`, `bl30.enc`, `bl31.enc`, `bl33.enc` ;
+2. `gxlimg -t bl3x -c` chiffre le BL33 (AES Amlogic) ;
+3. `gxlimg -t fip` réassemble ;
+4. ré-extraction et `cmp` des trois composants d'origine : **un écart = aucune
+   écriture** ;
+5. `dd seek=1 conv=fsync,notrunc` — le secteur 0 (table de partitions) n'est
+   jamais touché, l'environnement U-Boot (~628 Mio) non plus ;
+6. relecture du média et `cmp` : ce que la ROM lira est ce qui a été écrit.
+
+À la fin, la carte démarre le BL33 mainline, qui lit `extlinux/extlinux.conf`
+sur `p1` — fichier écrit par `nixos-install` — et démarre la génération
+courante. Un `nixos-rebuild switch` ultérieur régénère ce fichier et les
+fichiers de génération.
+
+**Le BL33 est reconstruit, pas mesuré** : le binaire de ce dépôt fait
+747 960 o (DT appendée, 44 704 o, `OF_SEPARATE`) contre 794 448 o pour celui
+validé à la main sur une première unité — même commit, même `p212_defconfig`,
+chaîne de compilation différente. La première installation doit donc se faire
+sur une unité sacrifiable, sauvegarde en main (§4).
+
+**La SD de l'installateur reste démarrable après migration** : `n5-boot.nix`
+écrit aussi `extlinux/extlinux.conf` dans `NIXOS_BOOT`, à côté des
+`boot.scr`/autoscripts épinglés à la numérotation vendor. Nécessaire parce que
+le mainline numérote la SD `mmc 1` là où le U-Boot vendor la numérote `mmc 0`.
+
+#### Numérotation des médias
+
+| média | U-Boot vendor | U-Boot mainline | Linux |
+|---|---|---|---|
+| SD | `mmc 0` | `mmc 1` | `mmcblk0` |
+| eMMC | `mmc 1` | `mmc 2` | `mmcblk1` |
+| SDIO (WiFi) | — | `mmc 0` | `mmcblk2` |
+
+Un autoscript épinglé à `mmc 0:1` (convention vendor) tombe sur le SDIO en
+mainline : l'échec est silencieux, le chargeur continue et retombe sur son
+invite. C'est ce qui a fait croire à une carte briquée.
 
 ## 2. Prérequis
 
@@ -396,15 +465,24 @@ secteurs (512 MiB) ; `p2` commence au secteur 1050624 (513 MiB).
 
 | fichier | taille | contenu |
 |---|---|---|
-| `prefix-668MiB.img` | 668 MiB | BL1/BL2/BL31/BL33 vendor **et** l'environnement U-Boot, situé vers 628 MiB |
-| `boot0.img` | 4 MiB | partition boot0 de la eMMC (si exposée) |
-| `boot1.img` | 4 MiB | idem boot1 |
+| `prefix-668MiB-<stamp>.img.zst` | ~1 Mo | BL1/BL2/BL31/BL33 vendor **et** l'environnement U-Boot (vers 628 MiB), compressé |
+| `components-<stamp>/` | ~500 Ko | `bl2.sign`, `bl30.enc`, `bl31.enc`, `bl33.enc` extraits du FIP installé, + `SHA256SUMS`, `MANIFEST.txt` |
+| `boot0.img`, `boot1.img` | 4 Mo chacun | partition boot0/boot1 de la eMMC (si exposée) |
 
-Total ≈ 676 Mo ; d'où le seuil de 800 MiB. Elle est écrite **sur la
-partition racine de la SD de l'installateur**, donc :
+La zone de 668 Mio est vide à 99,88 % — mesuré **668 Mio → 821 Kio** à
+`zstd -3` sur une image de même structure (FIP au secteur 1, reste à zéro).
+D'où un seuil de **64 Mio** libres, et non 800 : sur une carte de 2 Gio,
+l'ancien seuil refusait une installation dont la sauvegarde tient dans 1 Mo.
 
-- elle survit à l'installation,
-- elle **disparaît** si la SD est réécrite — la récupérer avant.
+Les composants extraits ne sont pas un doublon : ils permettent de reconstruire
+un FIP sans le préfixe ni le média —
+
+```bash
+gxlimg -t fip --bl2 bl2.sign --bl30 bl30.enc --bl31 bl31.enc --bl33 bl33.enc fip.bin
+```
+
+— et le `SHA256SUMS` atteste qu'on regarde bien la même carte que celle
+sauvegardée.
 
 ### 4.2 La récupérer
 
@@ -415,7 +493,7 @@ Pas de réseau sur l'installateur : on passe par l'hôte.
 sudo mount -o ro /dev/sdXp2 /mnt
 sudo cp -a /mnt/var/lib/n5-backup ~/n5-backup-$(date +%F)
 sync && sudo umount /mnt
-ls -l ~/n5-backup-*/     # prefix-668MiB.img (+ boot0.img, boot1.img)
+ls -l ~/n5-backup-*/     # prefix-…img.zst + components-<stamp>/ (+ boot0.img, boot1.img)
 ```
 
 Faire cette copie **avant** de réutiliser la SD pour autre chose.
@@ -426,9 +504,13 @@ Faire cette copie **avant** de réutiliser la SD pour autre chose.
 # démarrer l'installateur (SD en place), ne rien monter de la eMMC, puis :
 ls -l /var/lib/n5-backup/
 
-# 1. bootloader vendor (668 premiers MiB)
-dd if=/var/lib/n5-backup/prefix-668MiB.img of=/dev/mmcblk1 \
-   bs=1M count=668 conv=fsync status=progress
+# 1. bootloader vendor (668 premiers MiB) — depuis la sauvegarde compressée
+zstd -dc /var/lib/n5-backup/prefix-668MiB-<stamp>.img.zst | \
+  dd of=/dev/mmcblk1 bs=1M conv=fsync,notrunc status=progress
+
+# 1 bis. ou, s'il ne reste que les composants :
+#   gxlimg -t fip --bl2 bl2.sign --bl30 bl30.enc --bl31 bl31.enc --bl33 bl33.enc fip.bin
+#   dd if=fip.bin of=/dev/mmcblk1 bs=512 seek=1 conv=fsync,notrunc
 
 # 2. partitions boot, si sauvegardées
 for p in boot0 boot1; do

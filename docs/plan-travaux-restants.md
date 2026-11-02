@@ -4,6 +4,11 @@
 > démarre seul (voir `boards/magicsee-n5.md`) ; quatre dettes de la chaîne
 > d'amorçage sont ajoutées en C5–C8. Les lignes B, C et D du 28/10 restent
 > valables sauf mention contraire.
+>
+> **Révision 2026-11-01** : la N5 est passée **mainline** (BL33 2027.01,
+> mesuré), l'IR et la LED sont réglées côté HavenOS. Deux dettes ajoutées :
+> **C9** (l'installateur ne sait plus installer une cible vendor) et **C10**
+> (hook de persistance de la charge utile vendor).
 
 > **Exécution** : le découpage en worktrees, les critères d'acceptation de C5–C8
 > et l'ordre de la prochaine session sont dans `HavenOS/HANDOFF.md`, section
@@ -69,6 +74,8 @@
 | C6 | **`uImage.multi` encore produit** (63,5 Mo) alors que l'autoscript ne s'en sert plus, et c'est exactement le fichier qui dépasse le seuil de lecture FAT cassé (> 38 Mo). **Fait** (`594c4fe`) : retiré de `mkBootFiles` ; plus aucun fichier au-dessus de 38 Mio dans la charge utile | fait | build |
 | C7 | **image d'installateur à 4,46 Gio** : elle embarque la fermeture cible (2,50 Gio) pour installer hors ligne et ne tient pas sur une carte de 3,8 Gio. **Forme retenue (2026-10-31, décision utilisateur)** : une image « bootstrap » sous 2 Gio, **alignée sur le provisioning** — même `havenos-image`, même unité `havenos-secrets`, même contrat, donc `havenos provision` s'y applique sans code spécifique et les secrets survivent au switch (ils sont sur la partition ext4). Elle n'est hors ligne **que** pour le cas où le kiosque s'installe lui-même. Contraintes : le kiosque doit voyager par le réseau (`nixos-rebuild switch --target-host` depuis le poste, HavenOS étant privé), et **C8 doit exister d'abord** — sans la commande qui repose la charge utile, le boîtier redémarre sur le bootstrap. **Construite et mesurée le 2026-10-31** : `aml-s9xx-box-bootstrap`, image décompressée 1 547 853 824 o (1,44 Gio), `.zst` 350 496 285 o, fermeture 894 Mo, aucun `glxnsrfm` ; `zramSwap` coupé en plus des quatre leviers (module élagué, sinon 90 s d'attente et une unité en échec). Reste à valider : écriture sur média et boot ; le boot **USB** de la N5 (la ROM essaie SPI → eMMC → NAND → SD → USB, mais seule la SD et la eMMC ont été mesurées) | construit, non validé sur média | build |
 | C8 | **charge utile épinglée** : un `nixos-rebuild switch` réussit mais le boot repart sur l'ancien `init=`. Il faut regénérer `havenos-n5-boot-payload`, le copier sur `NIXOS_BOOT` et rebooter. **Fait côté code** (HavenOS `60e44f4`) : `havenos payload` construit, exige `init=` = `<toplevel>/init`, copie la fermeture **avant** d'écrire, puis relit et compare les sha256. `--dry-run` exercé sur la N5 ; l'écriture réelle reste un geste opérateur | fait (code) | code |
+| C9 | **installateur : deux schémas d'amorçage** — le code actuel exige `extlinux/extlinux.conf`, supprime `boot.scr` et écrit le BL33 **inconditionnellement** : il ne sait plus installer une cible **vendor**, alors que c'est le cas de toute unité fraîche (bootstrap C7) et de toute unité dont le BL33 n'a pas été prouvé. Spec : `docs/specs/03-installateur-deux-schemas.md`. Forme proposée : option `nixelec.bootloader = "vendor" \| "mainline"` (extlinux + montage `/boot` + forme de la charge utile), `install.sh --vendor/--mainline` avec refus croisé, branche vendor qui génère `uImage`/`uInitrd`/autoscripts/`uEnv.ini` depuis `/mnt/n5/nix/store`, `ubootTools` ajouté à la fermeture | 1 j + 1 unité sacrifiable | code |
+| C10 | **hook vendor** — sur une cible restée vendor, `switch` est perdu au reboot (le vendor ne lit pas extlinux). Un oneshot après activation reconstruit la charge utile depuis `system.build.toplevel` et la recopie sur `NIXOS_BOOT`, avec vérification de `init=` et des sha256. S'appuie sur `havenos payload` (C8). C'est la réponse générique pour toute carte meson64 dont le chargeur ne lit pas extlinux | 2–3 h | code |
 
 ### D. Risques de fond
 
@@ -89,13 +96,13 @@
 ## 4. Vagues
 
 **Vague 1 — parallèle, sans build ni carte**
-B2 (préparer la keymap, en attente de l'identification de la télécommande) · D1 (étude d'impact du rebase FFmpeg 7.x, sans compiler) · B7 (le correctif du mode d'affichage se conçoit sans le boîtier).
+C9 (spécifier l'installateur deux schémas, `docs/specs/03-installateur-deux-schemas.md`) · D1 (étude d'impact du rebase FFmpeg 7.x, sans compiler) · B7 (le correctif du mode d'affichage se conçoit sans le boîtier).
 
 **Vague 2 — la couche kiosque d'abord**
 C2 (migration vers HavenOS : 3 dépôts, commits séparés). C'est le prérequis du reste : inutile de qualifier un boîtier sur une image qui va changer de dépôt.
 
 **Vague 3 — après l'unification HavenOS**
-B6 (thermique ~40 min ; suspend : à clore par une mesure négative assumée) · B4 (CEC) · C1/C3 (finitions) · C5–C8 (chaîne d'amorçage). L'**installation eMMC** de cette vague est faite (2026-10-31) : le boîtier démarre seul depuis sa eMMC, sans carte SD.
+B6 (thermique ~40 min ; suspend : à clore par une mesure négative assumée) · B4 (CEC) · C1/C3 (finitions) · C5–C10 (chaîne d'amorçage). L'**installation eMMC** de cette vague est faite (2026-10-31) : le boîtier démarre seul depuis sa eMMC, sans carte SD ; C9/C10 restent ouverts (installer vendor, hook de persistance).
 
 ## 5. Découpage en subagents
 
