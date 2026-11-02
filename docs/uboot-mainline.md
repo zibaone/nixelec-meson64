@@ -1,116 +1,151 @@
-# Remplacer le U-Boot vendor (Amlogic gxl, S905X / p212)
+# U-Boot mainline à la place du BL33 vendor (Amlogic gxl, S905L / p212)
 
-État au 2026-10-30 : **construction amont qui passe**, rien n'a encore été écrit
-sur la carte. Ce document décrit la voie sans risque avant les écritures
-irréversibles.
+État au 2026-11-01 : **fait sur une unité**, et automatisé dans l'installateur
+(`docs/installateur.md` §1.8). Le BL2, le BL30 (SCP) et le BL31 restent ceux de
+la carte ; seul le BL33 est remplacé.
 
 ## Pourquoi
 
-Aujourd'hui l'image SD nixelec n'écrit **aucun** binaire d'amorçage
-(`firmwarePartitionOffset = 1`, premier MiB vide) : les deux médias dépendent du
-U-Boot vendor présent dans les 668 premiers MiB de la eMMC. Une carte à eMMC
-effacée ne démarre plus du tout, seule issue le MaskROM Amlogic.
+Le U-Boot vendor lit correctement `Image` (38 Mo), `initrd` (25 Mo), `boot.scr`
+et le DTB depuis la eMMC : il n'est pas fragile, il est **limitant**. Son BL33
+décompressé (969 064 o) ne contient **ni `sysboot` ni `extlinux`** : il n'existe
+aucun moyen de lui faire lire une entrée par génération. D'où la charge utile
+épinglée — un `uEnv.ini` qui fige `init=/nix/store/<génération>`, et donc un
+`nixos-rebuild switch` qui ne survit pas au reboot (`docs/amorcage-n5.md`).
 
-Le U-Boot vendor fonctionne pour autant : il lit correctement `Image` (38 Mo),
-`initrd` (25 Mo), `boot.scr` et le DTB depuis la eMMC. Les incidents du 30/10
-avaient trois autres causes (nom `emmc_autoscript`, écriture non arrivée sur le
-média, format d'initrd refusé par `bootm`). Le motif du remplacement est donc la
-**dépendance**, pas la fiabilité.
+Remplacer le BL33 par un U-Boot mainline supprime les deux problèmes d'un coup :
+`extlinux` lit `extlinux/extlinux.conf`, que `nixos-install` et
+`switch-to-configuration` écrivent.
 
-## Ce qui est prêt
+## Anatomie du FIP vendor
 
-- `nix develop .#uboot` : chaîne croisée `aarch64-unknown-linux-gnu-`,
-  `ubootTools`, `dtc`, `swig`/`bc`/`bison`/`flex`, `pyusb` + `libusb1`,
-  `picocom`/`minicom`. `ARCH=arm64` et `CROSS_COMPILE` posés par le shellHook.
-- `scripts/uboot-p212.sh` : clone/actualise U-Boot amont, `p212_defconfig`,
-  construit, et copie les artefacts dans `build-uboot/out/`.
+- FIP à l'offset **0x200** (secteur 1) ; l'outillage Amlogic (`mread`,
+  `partition`) travaille à cet offset, donc un dump s'écrit tel quel.
+- En-tête `@AML` à 0x10 ; TOC **v2** chiffrée à 0xC000 (`0xaa640001` /
+  `0x12345678`, entrées de 40 o).
+- BL30 @0x4000 (`0xd600`), BL31 @0x14000 (`0x2b400`), BL33 @0x40000 (`0x7d600`,
+  compressé en conteneur **LZ4C**). **Pas de BL301.**
+- Adresses de chargement : BL2 = 49 152 o à `0xd9000000`, BL31 à `0x05100000`,
+  BL33 à **`0x01000000`** (= `CONFIG_TEXT_BASE` du build p212).
 
-Résultat mesuré le 30/10 (U-Boot amont, `p212_defconfig`) :
+Le firmware **installé** n'est pas celui du paquet vendor : il date du
+16/08/2018, là où le paquet `.img` de 2019 en embarque un autre.
 
-| artefact | taille |
-|---|---|
-| `u-boot.bin` | 794 448 o |
-| `u-boot.dtb` | 44 704 o |
-| `u-boot.bin.sd.bin` | **non produit** par cette cible |
+| composant | installé (2018) | paquet (2019) |
+|---|---|---|
+| BL2 | `04c7f439…` | `6262fc69…` |
+| BL30 | `ba34a087…` | `af42f285…` |
+| BL31 | `c1ef5d0d…` — **99 328 o** | `09de6202…` — 177 152 o |
+| BL33 | `4bf21da1…` — 417 280 o | `df116e69…` — 513 536 o |
 
-Le `.sd.bin` est le format attendu par la ROM : un en-tête Amlogic de 512 octets
-(`AML`) suivi du binaire, avec la taille et la somme de contrôle. Mainline ne
-l'émet pas — il faut soit l'outillage vendor (`aml_encrypt_gxl`), soit passer par
-le MaskROM.
+C'est la raison pour laquelle le FIP candidat se construit sur les composants
+**lus sur la carte** et jamais sur ceux d'un paquet : flasher le FIP de 2019
+aurait remplacé quatre composants au lieu d'un.
 
-## Étape 1 — validation sans écriture (à faire d'abord)
+## Ce qui est écrit, et par qui
 
-La ROM Amlogic accepte un binaire **par USB OTG** (câble A-A, celui de
-l'opérateur). Le binaire est chargé en RAM et exécuté : rien n'est écrit, donc
-rien ne peut être brické.
+`pkgs/uboot-p212-bl33.nix` construit le BL33 (`p212_defconfig`, commit
+`3973f3c4d24d` épinglé) via `buildUBoot`, évalué dans
+`pkgsCross.aarch64-multiplatform` depuis x86_64 : `CROSS_COMPILE` est déjà posé
+par `stdenv.cc.targetPrefix`, donc la construction reste **native** (19 s
+mesurées) au lieu de tourner sous binfmt.
 
-```sh
-nix develop .#uboot
-python3 -m venv .venv-amlboot
-.venv-amlboot/bin/pip install pyamlboot
+L'installateur relit le FIP installé, en extrait BL2/BL30/BL31, chiffre le BL33
+(`gxlimg -t bl3x -c`), réassemble, **compare** les trois composants ré-extraits
+à ceux d'origine, puis écrit au secteur 1 et relit le média. Détail des étapes :
+`docs/installateur.md` §1.8.
 
-# carte en MaskROM : alimentation coupée, maintenir le bouton reset (ou shunter
-# l'eMMC), brancher l'USB A-A, puis alimenter
-.venv-amlboot/bin/amlboot boot build-uboot/out/u-boot.bin
+## Résultats mesurés
+
+```
+U-Boot 2027.01-rc1-g3973f3c4d24d (Jan 01 1980 - 00:00:00 +0000) p212
+MMC:   mmc@70000: 0, mmc@72000: 1, mmc@74000: 2
+Scanning mmc 1:2...  Loading Boot0000 'mmc 1' failed
+mmc2(part 0) is current device
+Scanning mmc 2:1...  Found /extlinux/extlinux.conf
+Retrieving file: /extlinux/extlinux.conf
+Retrieving file: /Image    Retrieving file: /initrd
+Starting kernel ...
 ```
 
-Si la console série affiche le prompt mainline, la cible est bonne et la suite
-devient une simple question d'écriture.
+### Numérotation des médias — trois conventions
 
-## Étape 2 — SD avant eMMC
+| média | U-Boot vendor | U-Boot mainline | Linux |
+|---|---|---|---|
+| SD | `mmc 0` | `mmc 1` (`mmc@72000`) | `mmcblk0` |
+| eMMC | `mmc 1` | `mmc 2` (`mmc@74000`) | `mmcblk1` |
+| SDIO (WiFi) | — | `mmc 0` (`mmc@70000`) | `mmcblk2` |
 
-Une fois le binaire validé en RAM, l'écrire en tête de SD. La ROM préfère la SD
-si son en-tête est valide et retombe sur la eMMC sinon : **une SD ratée ne
-brique rien**, il suffit de la retirer.
+Un autoscript épinglé à `mmc 0:1` (convention vendor) tombe sur le SDIO en
+mainline : l'échec est silencieux, le chargeur retombe sur son invite. C'est ce
+qui fait croire à une carte briquée. La DT p212 n'a **aucun alias `mmc*`**, donc
+l'ordre par défaut est `mmc0` (SDIO) → `mmc1` (SD) → `mmc2` (eMMC) : un
+`boot_targets=mmc2 mmc1 usb0` dans `CONFIG_EXTRA_ENV_SETTINGS` serait plus
+juste, mais n'est pas nécessaire puisque la SD n'a pas d'`extlinux.conf` et que
+l'eMMC en a un.
 
-L'écriture en eMMC (`boot0`, en-tête Amlogic) ne vient qu'après, avec la
-procédure MaskROM ci-dessus écrite noir sur blanc et testée.
+## Ce qui ne marche pas, ou n'est pas fait
 
-## Pièges déjà rencontrés, à ne pas réintroduire
+- **Aucune récupération par USB depuis le ROM.** pyamlboot écrit (`0x11`) mais
+  son `0x05` rend `Errno 5` et déconnecte ; l'outil vendor refuse le stage 0.16
+  (`romStage not bl1/bl2`). Prouvé en revanche : `run update` depuis un U-Boot
+  vendor **vivant** + `update partition bootloader` (`mwrite success`).
+- **Carte SD à FIP** (`u-boot.sd.bin` au secteur 0) : préparée, non testée. Elle
+  ne sert que si la ROM lit la SD, c'est-à-dire si le FIP **eMMC est invalide**.
+- **Le bouton reset n'est pas une porte** (mesuré le 2026-11-01) : 8 cycles
+  d'alimentation, dont un à froid avec le bouton tenu avant la mise sous tension,
+  **câble USB A-A branché côté hôte** — dont un essai avec le **VBUS rétabli par
+  227 Ω** et `amlboot` déjà en attente du périphérique — et plusieurs séries
+  d'appuis. La ligne BL1 affiche `POC:3;RCY:0` et la ROM charge le FIP eMMC à
+  chaque fois — jamais la carte SD pourtant valide, jamais de `1b8e:c003` en USB.
+  Le mode download n'est donc pas déclenchable par le bouton, même avec un hôte
+  USB présent : il ne s'active que si la ROM ne trouve **aucune** source de boot
+  valide. Pressé sur un système
+  en marche, le même bouton déclenche un arrêt propre : il fonctionne, mais
+  c'est une **touche power**, pas une entrée de récupération échantillonnée par
+  la ROM. Corollaire : les entrées en mode ROM du 2026-10-29 venaient très
+  probablement d'un FIP eMMC **invalide** à ce moment-là, pas du bouton. Le ROM n'entre en USB que si le FIP eMMC est **invalide**
+  (c'est ainsi qu'on l'avait atteint). Donc un BL33 valide mais qui ne démarre
+  pas n'a **aucune** récupération logicielle : seule la porte `boot@SDC`
+  (dongle) force la SD.
+- **ATF** : `armTrustedFirmwareS905` (ATF 2.14, plateforme meson/gxbb couvrant
+  GXL) est disponible et permettrait de remplacer aussi le BL31 vendor : PSCI
+  maintenu, disparition du message `Error initializing runtime service
+  opteed_fast`. Ce n'est pas un déblocage (le BL31 vendor fait SMP, PSCI et
+  reset) et ça ne touche ni BL2 ni BL30, qui restent des blobs.
+- **Dongle HDMI** (`boot@SDC` / `boot@USB`, EEPROM 24C02 en I2C `0x52`) :
+  documenté, non fabriqué.
 
-- `booti` exige un noyau **aligné sur 2 Mio** : `0x1080000` ne l'est pas, d'où
-  l'exception et la boucle de reset. Utiliser `0x2000000`.
-- `bootm` refuse un initrd brut (« Wrong Ramdisk Image Format ») ; `booti`
-  l'accepte avec `adresse:taille`.
-- Le U-Boot vendor cherche `emmc_autoscript` sur `mmc 1` et `s905_autoscript` sur
-  `mmc 0` : les deux noms doivent être présents.
-- `stat -c %s` sur un lien du store mesure le lien (96 o) : utiliser `stat -L`.
+## Diagnostic sans console
 
-## Résultat du 30/10 : MaskROM refuse le payload
+Le build p212 n'a **pas** `CONFIG_VIDEO` : rien n'est affiché sur HDMI avant le
+noyau. Trois états produisent donc le même symptôme — écran noir, LED rouge
+(la DT p212 n'a aucun nœud `leds`, donc aucun logiciel ne la pilote), pas de
+réseau :
 
-Quatre tentatives de charger le FIP en RAM par USB OTG (`amlboot p212`), sur deux
-ports et avec deux BL2 différents :
-
-| tentative | résultat |
+| état | ce qui le distingue |
 |---|---|
-| BL2 de pyamlboot (`files/p212`), port 1 | `Errno 5` à la première écriture mémoire |
-| BL2 de notre FIP, port 1 | `Errno 5` au même endroit |
-| idem, port USB 2 (`Bus 003`) | `Errno 19` : le périphérique **se déconnecte** |
-| BL2 écrit par `REQ_WR_LARGE_MEM` (0x11), outil lancé **avant** la carte | `Errno 110` : timeout bulk |
+| hors tension | rien sur l'UART, pas d'énumération USB |
+| invite `=>` | `Hit any key to stop autoboot` puis `=>` ; `boot` relance |
+| mode download du ROM | ligne `BL1` puis silence ; `1b8e:c003` côté hôte si VBUS présent |
 
-`dmesg` est sans ambiguïté : `New USB device found, idVendor=1b8e, idProduct=c003`
-puis `USB disconnect` — aucune erreur de bus, aucun `error -71`. Le lien est sain ;
-c'est le ROM qui coupe, systématiquement, à la première écriture mémoire. Le
-lancement avant la carte (fenêtre de ~20 s du chien de garde) ne change rien.
+Ordre de vérification : `ping` l'IP (si elle répond, la boîte a booté), puis
+l'UART, puis l'HDMI. L'autoboot s'arrête au **premier caractère reçu** pendant
+les deux secondes du décompte — avec un adaptateur TX connecté, un appui
+malencontreux suffit à laisser la boîte à l'invite.
 
-**Hypothèse retenue : secure boot activé.** Le BL1 n'accepte qu'un BL2 signé par
-Amlogic : il laisse l'identification (`ROM: 0.7 Stage: 0.16`) puis rejette tout
-chargement.
+## Pièges
 
-### Conséquence : la voie SD devient risquée
-
-Si le ROM vérifie les signatures, il refusera aussi notre FIP sur la SD. Or
-neutraliser le chargeur eMMC (écrire des zéros dans le premier Mio) pour forcer
-la SD serait alors **sans retour** : plus de chargeur eMMC, FIP SD refusé, et un
-MaskROM qui n'écrit rien. **Ne pas tenter sans preuve préalable que le ROM accepte
-un FIP non signé.**
-
-### Ce qui reste praticable
-
-1. Garder le U-Boot vendor (il lit correctement nos fichiers : mesuré, `Image`,
-   `initrd`, `boot.scr` et le DTB passent le CRC depuis la eMMC).
-2. Refaire une installation propre **avec l'alimentation neuve** : les derniers
-   échecs de démarrage venaient de fichiers faux sur le média (`Bad Data CRC` y
-   compris sur `uImage`), écrits avant le changement d'alimentation.
-3. Utiliser la recette de référence (`uImage` + `uInitrd` + DTB, `bootm` à trois
-   arguments) qui est celle des cartes Amlogic à U-Boot vendor.
+- `booti` exige un noyau **aligné sur 2 Mio** : `0x1080000` ne l'est pas.
+  Utiliser `0x2000000`.
+- `bootm` refuse un initrd brut (« Wrong Ramdisk Image Format ») ; `booti`
+  l'accepte sous la forme `adresse:taille`.
+- `stat -c %s` sur un lien du store mesure le lien (96 o) : utiliser `stat -L`.
+- `cp` **sans** `-L` copie des liens, que FAT ne connaît pas.
+- `gxlimg -t fip -e <in> <dir>` **ne crée pas** `<dir>` : `mkdir -p` d'abord.
+- Le mainline du build p212 a `fatmkdir`/`fatwrite`/`fatrm` (`CONFIG_FAT_WRITE`)
+  mais **pas** `fatmv` : pour neutraliser `boot.scr`, c'est `fatrm`.
+- Un `extlinux.conf` avec `root=LABEL=…` est ambigu quand la SD et la eMMC
+  portent la même étiquette (`NIXOS_SD`) : épingler par `PARTUUID`
+  (`part list mmc N` donne la signature MBR) ou donner une étiquette distincte
+  à la cible.
