@@ -447,14 +447,19 @@ let
         echo "extlinux.conf absent : la cible n'a pas écrit de chargeur" >&2
         exit 1
       fi
-      grep -q '^  LINUX /nixos/' "$conf" || {
-        echo "extlinux.conf sans LINUX /nixos/<génération>" >&2
+      # Forme mesurée du fichier écrit par `extlinux-conf-builder.sh`
+      # (nixpkgs) : `  LINUX ../nixos/<hash>-Image`, relatif à
+      # `/boot/extlinux`. Le contrôle exigeait `/nixos/` en absolu, ce que le
+      # générateur n'écrit jamais : l'installation mainline s'arrêtait ici
+      # alors que la configuration était bonne.
+      if ! grep -Eq '^  LINUX (\.\./)?/?nixos/' "$conf"; then
+        echo "extlinux.conf sans LINUX vers nixos/<génération>" >&2
         exit 1
-      }
-      grep -q '^  INITRD /nixos/' "$conf" || {
-        echo "extlinux.conf sans INITRD /nixos/<génération>" >&2
+      fi
+      if ! grep -Eq '^  INITRD (\.\./)?/?nixos/' "$conf"; then
+        echo "extlinux.conf sans INITRD vers nixos/<génération>" >&2
         exit 1
-      }
+      fi
       # Une charge utile épinglée sur p1 masquerait extlinux (ce chargeur lit
       # `boot.scr` avant) : en mainline, elle n'a rien à faire là.
       for f in boot.scr uImage uInitrd uEnv.ini; do
