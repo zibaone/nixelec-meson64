@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Statut | **proposée** — contrat à arbitrer. Le volet `meson64` décrit l'existant et le remplace sans changement de comportement ; le volet `sunxi64` (H618) est à mesurer |
-| Portée | le contrat entre la mécanique d'installation (HavenOS) et les familles (`nixelec-meson64`, `nixelec-sunxi64`) : plan, layout, assets d'amorçage, vetos |
+| Statut | **proposée** — contrat à arbitrer. Le volet `meson64` décrit l'existant et le remplace sans changement de comportement ; le volet `sunxi64` (H618) est **mesuré** sur unité (2026-11-05), le provider reste à écrire |
+| Portée | le contrat entre la mécanique d'installation (HavenOS) et les familles (`nixelec-meson64`, `nixelec-sunxi64`) : plan, layout, assets d'amorçage, vetos, inventaire et dump du chargeur |
 | Dépend de | Spec 03 (deux schémas, `nixelec.bootloader`) ; C8/C10 (charge utile épinglée) |
-| Non-buts | la mécanique d'installation elle-même (spec HavenOS `installateur-unifie`), le provisionnement des secrets (`havenos-provisioning`), le repartitionnement d'une unité en service |
+| Non-buts | la mécanique d'installation elle-même (spec HavenOS `installateur-unifie`), le banc d'essai (spec HavenOS `banc-validation-plateforme`), le provisionnement des secrets (`havenos-provisioning`), le repartitionnement d'une unité en service |
 
 ## Problème mesuré
 
@@ -110,6 +110,8 @@ platform_backup_extra     → médias du chargeur (boot0/boot1 sur meson64)
 platform_write_boot       → écrit la chaîne d'amorçage depuis le store installé
 platform_verify_boot      → relit, compare, et dit si l'amorçage est prouvé
 platform_write_bootloader → écrit le chargeur seul (migration, hors installation)
+platform_inventory        → inventaire lecture seule : médias, chargeur, réseaux, contrat
+platform_dump_loader      → dump borné du chargeur, DTB embarqué, environnement, hachés
 ```
 
 Les deux premières précèdent la garde root (un outil manquant après
@@ -119,6 +121,33 @@ sauvegarde génériques du moteur.
 
 Le moteur n'a le droit de connaître **aucun** offset, aucun outil, aucun nom de
 fichier propre à une famille.
+
+### Inventaire et dump : deux capacités, pas deux étapes du plan
+
+`platform_detect` suffit au moteur, pas à l'opérateur : une unité dont on ignore
+le chargeur ne peut être ni décrite ni sauvegardée avant écriture. D'où deux
+fonctions, **hors pipeline** et **strictement en lecture** :
+
+- `platform_inventory` rend un manifeste JSON — seul format consommé par les
+  autres outils (installateur, banc, poste de travail). Champs : famille, board,
+  DTB, hôtes MMC et mode, disques (modèle, taille, étiquettes, `boot0`/`boot1`),
+  USB (masse, net), PHY réseau détectés et état du lien, chargeur en place (type,
+  version, offsets de signature), contrat d'image.
+- `platform_dump_loader` écrit des artefacts hors du média : zones de chargeur
+  bornées, DTB embarqué extrait (et décompilé quand la famille sait le faire),
+  environnement U-Boot s'il réside sur le média. Chaque artefact porte son
+  offset, sa taille, son sha256 et sa provenance. Ouverture en lecture seule,
+  taille bornée par défaut.
+
+Ni l'une ni l'autre ne modifie un média : elles ne sont donc pas soumises aux
+gardes G1–G8 et ne remplacent pas `platform_backup_extra`, qui sauvegarde *le
+plan* (ce qui sera écrasé). `platform_dump_loader` décrit ce qui *est en place*,
+y compris quand aucun plan n'est demandé.
+
+Ce qui n'entre pas ici : le banc d'essai (`boot-test`, `net-test`, noyau à chaud).
+Ce sont des consommateurs du même manifeste, pas des étapes de provisionnement —
+les mêler au moteur réintroduirait des offsets de famille là où le contrat les
+interdit.
 
 ### meson64 — ce que le provider doit reproduire
 
@@ -138,24 +167,39 @@ Le provider remplace `n5-install` sans changer un octet du comportement :
 - **veto** : refus d'un plan `vendor` sur une unité dont le BL33 du FIP est
   celui du mainline connu (lecture seule, avant tout `dd`).
 
-### sunxi64 (H618) — ce qui est connu, ce qui manque
+### sunxi64 (H618) — mesuré sur Transpeed 8K618-T (2026-11-05)
 
 Connu : `nixelec-sunxi64/modules/image/sunxi-sd.nix` place U-Boot à **8 Kio**,
 `populateFirmwareCommands = ""` (pas de partition firmware), et le dépôt n'a
 **ni installateur ni option de schéma**.
 
-À mesurer sur une unité avant d'écrire le provider :
+Les six mesures qui bloquaient la phase 4 sont faites sur une unité réelle
+(eMMC `CKTM4R` 58,2 Gio, `mmcblk1`) :
 
-1. ordre de démarrage de la ROM et offsets exacts (boot0 / u-boot) ;
-2. table de partitions vendor : ce qui doit survivre, ce qui est réutilisable ;
-3. chaîne vendor vs mainline : le chargeur vendor lit-il `boot.scr` ?
-   extlinux ? les deux ?
-4. `protectUntil` réel pour cette famille ;
-5. équivalent de `--no-bootloader` et du veto BL33 ;
-6. support eMMC vs NAND, et le nom du DTB.
+1. **Ordre de la ROM et offsets** : la ROM préfère la SD à la eMMC ; `boot0` et
+   `boot1` sont vides (aucun octet non nul sur 4 Mio chacun), la zone utilisateur
+   porte `eGON.BT0` à 8 196, avec copies de secours à 262 148 et 13 144 844.
+   Conclure de l'absence de `boot0` que la eMMC n'est pas bootable serait faux :
+   c'est la zone utilisateur qui amorce.
+2. **Table de partitions** : `p1` FAT 30 Mio à 8 Mio, `p2` ext4 racine ensuite
+   (défauts nixpkgs `sd-image`), étiquettes `FIRMWARE`/`nixos` ; rien d'Android à
+   préserver sur cette unité, qui a été réécrite.
+3. **Chargeur vendor vs mainline** : le mainline lit `extlinux.conf` sur `p2`
+   (mesuré, `loglevel` modifiable in situ) ; le vendor Android n'a pas été testé
+   — reste ouvert.
+4. **`protectUntil`** : 8 192 + 792 313 o (`u-boot-sunxi-with-spl.bin`,
+   `transpeed-8k618-t_defconfig` v2025.04) = 800 505 → **1 Mio** suffit, `p1` à
+   8 Mio laisse 7 Mio de marge.
+5. **Équivalent `--no-bootloader` et veto** : pas de FIP ; l'équivalent direct est
+   de relire les 8 196 premiers octets avant écriture et de comparer la signature
+   `eGON` et la version. `--no-bootloader` = ne pas écrire la zone SPL.
+6. **eMMC vs NAND, DTB** : eMMC sur `mmc1`, pas de NAND ;
+   `sun50i-h618-transpeed-8k618-t.dtb`.
 
-Tant que ces six points ne sont pas mesurés, la spec ne peut pas promettre que
-l'interface suffit — c'est justement le test de conception de la phase 4.
+Le provider sunxi64 n'est donc plus bloqué par des mesures. Ce qui reste à
+trancher est du code, pas de l'inconnu : un chargeur en **deux étages** (SPL à
+8 Kio puis U-Boot dans la même image) là où meson64 a un FIP, et l'absence de
+partition firmware à remplir.
 
 ### Layout : les deux politiques existent déjà
 
@@ -186,10 +230,16 @@ coûte **+24 Mio** (l'initrd de chaque variante).
 
 ## Risques
 
-- **Le provider sunxi64 est une hypothèse** tant que les six mesures ne sont pas
-  faites ; si la chaîne H618 exige une notion que l'interface n'a pas (par
-  exemple un chargeur en deux étages à offsets non contigus), l'interface
-  change — et c'est la phase 4 qui le dira.
+- **Le chargeur H618 est en deux étages** (SPL à 8 Kio puis U-Boot dans la même
+  image) là où meson64 écrit un FIP : c'est le cas que la spec prévoyait, et il
+  se règle dans le provider, pas dans le moteur — la phase 4 le vérifiera.
+- **`platform_dump_loader` peut aspirer des gigaoctets** si la borne par défaut
+  n'est pas respectée : taille bornée obligatoire, et jamais sur un média monté
+  en écriture.
+- **Les artefacts de dump sont des blobs tiers** (chargeur vendor, NVRAM) : ils
+  restent hors des dépôts publics, avec provenance et sha256 dans l'archive
+  locale — seule exception documentée, la NVRAM déjà vendorisée dans
+  `nixelec-sunxi64/modules/boards/firmware/`.
 - **`create` est destructif par nature** : la garde G5 protège le préfixe, pas
   les partitions vendor au-delà. Sur une unité en service, `keep` doit rester le
   défaut du plan.
@@ -204,12 +254,17 @@ coûte **+24 Mio** (l'initrd de chaque variante).
    accès au média ;
 3. le provider sunxi64 s'écrit **sans modifier le moteur** — ou la spec est
    corrigée ;
-4. aucun offset de famille ne subsiste dans le moteur (`grep 1368064` vide).
+4. aucun offset de famille ne subsiste dans le moteur (`grep 1368064` vide) ;
+5. `platform_inventory` rend un manifeste aux **mêmes champs** sur meson64 et
+   sunxi64, et ne fait aucune écriture sur le média ;
+6. `platform_dump_loader` sort des artefacts bornés et hachés, et refuse un
+   média monté en écriture.
 
 ## Ce qui invaliderait cette spec
 
-- le H618 se révèle incompatible avec un plan unique (chargeur en deux étages,
-  layout non conservable) : le contrat doit porter une notion de plus ;
+- le plan lui-même doit changer pour le H618 (offsets non contigus, chargeur
+  qu'on ne peut pas écrire d'un bloc) : le chargeur en deux étages est déjà
+  couvert par le provider, un plan différent ne le serait pas ;
 - HavenOS et nixelec divergent au point que deux moteurs restent nécessaires —
   la duplication est alors assumée et documentée, pas unifiée ;
 - le cache binaire local rend le fournisseur de système inutile (une seule
