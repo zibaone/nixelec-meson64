@@ -22,6 +22,17 @@
 let
   cfg = config.nixelec.wifi;
 
+  # Deux sources possibles pour /run/wpa_supplicant.conf :
+  #  - `networksFile` : la donnée (secret M2) rendue au boot, un fichier
+  #    wpa_supplicant complet — plus aucun SSID ni PSK dans la configuration ;
+  #  - `ssid` + `pskFile` : le couple historique, gardé pour les images de
+  #    secours et comme repli pendant une migration.
+  # Les deux unités doivent exister dès qu'une source est déclarée, sinon une
+  # carte en config-as-data n'aurait ni wpa-psk ni wpa_supplicant.
+  hasSsid = cfg.ssid != null && cfg.pskFile != null;
+  hasNetworks = cfg.networksFile != null;
+  hasSource = hasSsid || hasNetworks;
+
   # Même contenu que modules/system/minimal.nix, qui le pose en `mkForce` pour
   # les images nues (bring-up, decode). Ce module est le seul chemin sur un
   # hôte de flotte, qui n'importe pas minimal.nix : il doit fournir le firmware
@@ -73,6 +84,19 @@ in
       '';
     };
 
+    networksFile = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Path to a complete wpa_supplicant configuration (one or more
+        `network={…}` blocks), read at boot. When the file exists it takes
+        precedence over `ssid`/`pskFile`: the card then carries **no** WiFi
+        identity in its Nix configuration, only the path of a data file
+        rendered by the provisioning layer (config-as-data). The file must be
+        under `/run`: the clear-text never touches the disk.
+      '';
+    };
+
     powerSaveOff = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -90,7 +114,7 @@ in
 
     networking.wireless.iwd.enable = lib.mkForce false;
 
-    systemd.services.wpa-psk = lib.mkIf (cfg.ssid != null && cfg.pskFile != null) {
+    systemd.services.wpa-psk = lib.mkIf hasSource {
       description = "Render /run/wpa_supplicant.conf from a secret file";
       wantedBy = [ "wpa-supplicant-${cfg.interface}.service" ];
       before = [ "wpa-supplicant-${cfg.interface}.service" ];
@@ -100,33 +124,59 @@ in
       };
       script = ''
         umask 077
+        conf=/run/wpa_supplicant.conf
+      ''
+      + lib.optionalString hasNetworks ''
+        # La donnée prime : fichier wpa_supplicant complet, rendu au boot par
+        # le provisioning (`havenos-secrets`). Rien à parser, rien à cuire.
+        if [ -r ${lib.escapeShellArg cfg.networksFile} ]; then
+          cat ${lib.escapeShellArg cfg.networksFile} > "$conf"
+          exit 0
+        fi
+      ''
+      + lib.optionalString hasSsid ''
+        # Repli : couple ssid + PSK (image de secours, migration en cours).
         {
           printf 'network={\n'
-          printf '\tssid="%s"\n' "${cfg.ssid}"
-          printf '\tpsk="%s"\n' "$(cat "${cfg.pskFile}")"
+          printf '\tssid="%s"\n' ${lib.escapeShellArg cfg.ssid}
+          printf '\tpsk="%s"\n' "$(cat ${lib.escapeShellArg cfg.pskFile})"
           printf '}\n'
-        } > /run/wpa_supplicant.conf
+        } > "$conf"
+        exit 0
+      ''
+      + ''
+        # Aucune source exploitable : échec visible plutôt qu'un fichier vide
+        # que wpa_supplicant refuserait en boucle (mesuré sur la Zero 3 :
+        # 49 redémarrages, boucle qui masquait la vraie panne).
+        echo "wpa-psk: aucune source de réseaux lisible (${
+          if hasNetworks then cfg.networksFile else "networksFile"
+        } / ssid+pskFile)" >&2
+        exit 1
       '';
     };
 
-    systemd.services."wpa-supplicant-${cfg.interface}" =
-      lib.mkIf (cfg.ssid != null && cfg.pskFile != null)
-        {
-          description = "wpa_supplicant (${cfg.interface})";
-          wantedBy = [ "multi-user.target" ];
-          after = [
-            "network-pre.target"
-            "wpa-psk.service"
-          ];
-          wants = [ "wpa-psk.service" ];
-          before = [ "network.target" ];
-          serviceConfig = {
-            Type = "simple";
-            ExecStart = "${pkgs.wpa_supplicant}/sbin/wpa_supplicant -c /run/wpa_supplicant.conf -i ${cfg.interface}";
-            Restart = "on-failure";
-            RestartSec = 5;
-          };
-        };
+    systemd.services."wpa-supplicant-${cfg.interface}" = lib.mkIf hasSource {
+      description = "wpa_supplicant (${cfg.interface})";
+      wantedBy = [ "multi-user.target" ];
+      after = [
+        "network-pre.target"
+        "wpa-psk.service"
+      ];
+      wants = [ "wpa-psk.service" ];
+      before = [ "network.target" ];
+      # Sans conf rendue (secret non provisionné), wpa_supplicant sort en 255
+      # et systemd le relance sans fin : on saute l'unité (état « skipped »,
+      # pas « failed ») et `havenos provision` la relance après le PSK.
+      unitConfig.ConditionPathExists = "/run/wpa_supplicant.conf";
+      startLimitIntervalSec = 300;
+      startLimitBurst = 5;
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = "${pkgs.wpa_supplicant}/sbin/wpa_supplicant -c /run/wpa_supplicant.conf -i ${cfg.interface}";
+        Restart = "on-failure";
+        RestartSec = 5;
+      };
+    };
 
     systemd.services.wlan-ps-off = lib.mkIf cfg.powerSaveOff {
       description = "Disable WiFi firmware power saving (QCA9377)";
