@@ -123,11 +123,11 @@
       # n'installe pas cette charge utile dans sa eMMC.
       cp $out/s905_autoscript $out/aml_autoscript
       cp ${sdBootScript} $out/aml_autoscript.txt
-      # Adresse de chargement **alignée 2 Mio** : `arm64` l exige, et le
-      # chargeur vendor le signale lui-même (« Kernel image misaligned at boot »)
-      # quand on garde 0x1080000. 0x02000000 ne chevauche ni le DTB (0x1000000)
-      # ni l initrd (0x13000000).
-      mkimage -A arm64 -O linux -T kernel -C none -a 0x2000000 -e 0x2000000 -n NixOS -d ${kernel}/Image $out/uImage
+      # Le U-Boot vendor 2015.01 de la seconde N5 **aborte** (« Synchronous Abort »,
+      # reset en boucle) quand le noyau est chargé à 0x02000000 : sa routine
+      # `bootm` n accepte que l adresse historique 0x1080000. Le warning
+      # « Kernel image misaligned » est donc assumé — mesuré le 2026-11-10.
+      mkimage -A arm64 -O linux -T kernel -C none -a 0x1080000 -e 0x1080000 -n NixOS -d ${kernel}/Image $out/uImage
       # initrd encapsulé en uImage : c'est la forme que le `bootm` à trois
       # arguments du vendor accepte (recette Armbian).
       mkimage -A arm64 -O linux -T ramdisk -C gzip -n "NixOS initrd" -d ${initrd} $out/uInitrd
