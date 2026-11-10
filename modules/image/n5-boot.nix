@@ -113,6 +113,16 @@
       mkimage -A arm64 -O linux -T script -C none -n "N5 boot SD" -d $out/s905_autoscript.txt $out/s905_autoscript
       cp $out/s905_autoscript $out/boot.scr
       mkimage -A arm64 -O linux -T script -C none -n "N5 boot eMMC" -d $out/emmc_autoscript.txt $out/emmc_autoscript
+      # `aml_autoscript` : nom lu par les U-Boot vendor d'origine **Android**
+      # (BSP 2017/2018, `gxl_p212_*`), mesuré sur la seconde N5 le 2026-11-10 **sur
+      # le chemin eMMC** : il essaie `aml_autoscript`, puis `recovery.img`. Sur
+      # le chemin SD, le même chargeur lit bien `s905_autoscript`. Sans ce nom,
+      # une eMMC Android retombe sur son système, qui panique
+      # (`gxl_p212_2g` sur une carte N5). Même contenu que le script SD : ce nom
+      # n'est consulté que sur le média d'amorçage, et une unité Android
+      # n'installe pas cette charge utile dans sa eMMC.
+      cp $out/s905_autoscript $out/aml_autoscript
+      cp ${sdBootScript} $out/aml_autoscript.txt
       mkimage -A arm64 -O linux -T kernel -C none -a 0x1080000 -e 0x1080000 -n NixOS -d ${kernel}/Image $out/uImage
       # initrd encapsulé en uImage : c'est la forme que le `bootm` à trois
       # arguments du vendor accepte (recette Armbian).
