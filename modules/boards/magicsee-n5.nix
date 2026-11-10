@@ -5,6 +5,13 @@
 }:
 
 {
+  imports = [
+    # Hook de persistance de la charge utile vendor (`nixelec.bootloaderHook`,
+    # défaut false). Il n'apparaît que sur les cartes qui portent la charge
+    # utile épinglée de `n5-boot.nix` : c'est cette forme-là qu'il réécrit.
+    ../image/n5-bootloader-hook.nix
+  ];
+
   hardware.nixbian = {
     board = lib.mkDefault "aml-s9xx-box";
     kernelVendor = lib.mkDefault "edge";
