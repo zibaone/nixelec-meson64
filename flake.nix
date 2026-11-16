@@ -6,6 +6,12 @@
 
     flake-parts.url = "github:hercules-ci/flake-parts";
 
+    nixelec-common = {
+      url = "github:zibaone/nixelec-common";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-parts.follows = "flake-parts";
+    };
+
     nixbian = {
       # Branche de travail : elle porte la série meson-amvdec (patchs
       # amlogic-0118..0128). Le lock fige le rev, mais pointer la branche rend

@@ -59,6 +59,16 @@ in
 
     installer = ../modules/image/meson64-installer.nix;
 
+    # Contrats communs (nixelec-common). Le client WPA est le seul contrat de
+    # provisioning ; le pilote ath10k ci-dessous ne fait plus que le firmware
+    # et les modules noyau. Les modules IR, afficheur et racine eMMC sont
+    # ré-exportés pour que les deux familles aient la même surface ; ils sont
+    # inertes tant qu'aucune configuration de carte ne les active.
+    wifi-client = inputs.nixelec-common.nixosModules.wifi-client;
+    ir = inputs.nixelec-common.nixosModules.ir;
+    front-panel = inputs.nixelec-common.nixosModules.front-panel;
+    emmc-root = inputs.nixelec-common.nixosModules.emmc-root;
+
     # Image de qualification VPU : ajoute v4l-utils + ffmpeg v4l2-request.
     # Séparée de l'image minimale pour que la cible de bring-up reste nue.
     decode-tools =
@@ -76,8 +86,14 @@ in
         };
       };
 
-    # WiFi QCA9377 (ath10k_sdio) : pilote, firmware, wpa_supplicant.
-    wifi-ath10k = ../modules/services/wifi-ath10k.nix;
+    # WiFi QCA9377 (ath10k_sdio) : la carte n'ajoute que le pilote, le firmware
+    # et le shim `nixelec.wifi` ; le client WPA vient de nixelec-common.
+    wifi-ath10k = {
+      imports = [
+        inputs.nixelec-common.nixosModules.wifi-client
+        ../modules/services/wifi-ath10k.nix
+      ];
+    };
 
     meson64 =
       {

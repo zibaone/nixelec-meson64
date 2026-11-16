@@ -36,6 +36,28 @@
               find ${self} -name '*.nix' -exec nixfmt --check {} +
               touch $out
             '';
+
+        # Le shim `nixelec.wifi` doit alimenter le client commun : sans cette
+        # éval, une régression du mapping (enable/networksFile) ne se verrait
+        # qu'au boot de la N5.
+        eval-wifi-ath10k =
+          let
+            cfg = inputs.nixpkgs.lib.nixosSystem {
+              system = "x86_64-linux";
+              modules = [
+                self.nixosModules.wifi-ath10k
+                {
+                  nixelec.wifi = {
+                    enable = true;
+                    networksFile = "/run/wpa_supplicant.conf";
+                  };
+                }
+              ];
+            };
+          in
+          builtins.seq cfg.config.systemd.services.wpa-supplicant-wlan0.name (
+            pkgs.runCommand "eval-wifi-ath10k" { } "touch $out"
+          );
       };
     };
 }
