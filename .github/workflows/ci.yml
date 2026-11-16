@@ -23,27 +23,23 @@ concurrency:
 jobs:
   build:
     name: build ${{ matrix.package }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Image SD : tout est aarch64, le runner ARM natif est le bon.
-          - package: magicsee-n5-sd-image
-            runner: ubuntu-24.04-arm
-          # Image d'installation : elle embarque de l'U-Boot construit pour
-          # x86_64 (buildPackages du cross meson64) qu'un runner aarch64 natif
-          # ne peut pas produire. On la bâtit sur x86_64, l'aarch64 étant émulé
-          # par binfmt.
-          - package: magicsee-n5-installer-image
-            runner: ubuntu-latest
+        package:
+          - magicsee-n5-sd-image
+          - magicsee-n5-installer-image
     steps:
       - uses: actions/checkout@v4
 
+      # L'image embarque de l'U-Boot bâti pour x86_64 (buildPackages du cross
+      # meson64), qu'un runner aarch64 ne peut pas produire nativement. Seul cet
+      # outil est émulé : le noyau et le reste de l'image restent natifs, alors
+      # qu'un build complet sous qemu coûte des heures.
       - uses: docker/setup-qemu-action@v3
-        if: matrix.runner == 'ubuntu-latest'
         with:
-          platforms: arm64
+          platforms: amd64
 
       - uses: cachix/install-nix-action@v30
         with:
