@@ -7,10 +7,10 @@ Sous-ensemble du jeu de patchs LibreELEC `projects/Amlogic/patches/linux`
 ## Propriété (modèle B, 2026-11-16)
 
 Ces 9 patches sont **possédés par `nixelec-meson64`** et appliqués par le build
-de la famille. `nixbian` ne les contient pas : `parts/modules.nix:24` doit
-pointer sur `../../patches/kernel/meson64-vdec-7.0` et non sur
-`inputs.nixbian.outPath + "/metadata/nix/patches/kernel/meson64-vdec-7.0"`
-(chemin inexistant ; le repli ligne 137 masque l'erreur par un warning).
+de la famille. `nixbian` ne les contient pas : `parts/modules.nix` pointe sur
+`../patches/kernel/meson64-vdec-7.0` (chemin local à cette couche). Si le
+répertoire manque, `crossKernel` renvoie `null` et le noyau par carte nixbian
+reste le repli explicite — plus de chemin nixbian fantôme.
 
 ## Source
 

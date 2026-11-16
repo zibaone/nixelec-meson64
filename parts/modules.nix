@@ -1,27 +1,13 @@
 { inputs, ... }:
 
 let
-  familyKernel =
-    { config, pkgs, ... }:
-    let
-      system = pkgs.stdenv.hostPlatform.system;
-      key = "meson64-${config.hardware.nixbian.kernelVendor}";
-      legacy = inputs.nixbian.legacyPackages.${system} or { };
-      familyPackages = legacy.meson64 or { };
-      kernels = familyPackages.kernels or { };
-    in
-    if builtins.hasAttr key kernels then
-      kernels.${key}
-    else
-      throw ''
-        nixelec: nixbian does not expose legacyPackages.${system}.meson64.kernels.${key}.
-        Check the nixbian input and hardware.nixbian.kernelVendor.
-      '';
-
+  # Modèle B (2026-11-16) : la couche famille construit le noyau à partir de
+  # l'export Armbian vanilla de nixbian et de ses propres patches VDEC. Le
+  # chemin est local à cette couche, pas dans `nixbian` (qui n'en porte plus).
   crossKernel =
     extraConfig:
     let
-      patchDir = inputs.nixbian.outPath + "/metadata/nix/patches/kernel/meson64-vdec-7.0";
+      patchDir = ../patches/kernel/meson64-vdec-7.0;
     in
     if !(builtins.pathExists patchDir) then
       null
@@ -108,9 +94,7 @@ in
           ../modules/family/meson64.nix
         ];
 
-        nixelec.kernelPackage = lib.mkDefault (familyKernel {
-          inherit config pkgs;
-        });
+        nixelec.kernelPackage = lib.mkDefault (crossKernel "");
       };
 
     magicsee-n5 =
