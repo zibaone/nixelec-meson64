@@ -34,7 +34,7 @@ let
       in
       helpers.buildKernel {
         inherit meta extraConfig;
-        extraPatches = map (name: patchDir + "/" + name) patchNames;
+        extraPatches = map (name: "${patchDir}/${name}") patchNames;
         dtb_list = [ "amlogic/meson-gxl-s905x-p212.dtb" ];
         configMode = "armbian";
       };
