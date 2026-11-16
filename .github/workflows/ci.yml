@@ -23,20 +23,33 @@ concurrency:
 jobs:
   build:
     name: build ${{ matrix.package }}
-    runs-on: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        package:
-          - magicsee-n5-sd-image
-          - magicsee-n5-installer-image
+        include:
+          # Image SD : tout est aarch64, le runner ARM natif est le bon.
+          - package: magicsee-n5-sd-image
+            runner: ubuntu-24.04-arm
+          # Image d'installation : elle embarque de l'U-Boot construit pour
+          # x86_64 (buildPackages du cross meson64) qu'un runner aarch64 natif
+          # ne peut pas produire. On la bâtit sur x86_64, l'aarch64 étant émulé
+          # par binfmt.
+          - package: magicsee-n5-installer-image
+            runner: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.runner == 'ubuntu-latest'
+        with:
+          platforms: arm64
 
       - uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            extra-platforms = aarch64-linux x86_64-linux
 
       # Cache binaire partagé avec le poste de dev et HavenOS : sans lui, une
       # image complète rebâtit le noyau depuis les sources à chaque run.
