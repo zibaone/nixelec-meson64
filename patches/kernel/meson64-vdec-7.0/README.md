@@ -1,7 +1,16 @@
 # VPU stateless — `meson-amvdec` sur Linux 7.0
 
 Sous-ensemble du jeu de patchs LibreELEC `projects/Amlogic/patches/linux`
-(`amlogic-0118` à `amlogic-0128`), destiné à un noyau **7.0** de `nixbian`.
+(`amlogic-0118` à `amlogic-0128`), destiné à un noyau **7.0** exporté par
+`nixbian` et construit par `nixelec-meson64`.
+
+## Propriété (modèle B, 2026-11-16)
+
+Ces 9 patches sont **possédés par `nixelec-meson64`** et appliqués par le build
+de la famille. `nixbian` ne les contient pas : `parts/modules.nix:24` doit
+pointer sur `../../patches/kernel/meson64-vdec-7.0` et non sur
+`inputs.nixbian.outPath + "/metadata/nix/patches/kernel/meson64-vdec-7.0"`
+(chemin inexistant ; le repli ligne 137 masque l'erreur par un warning).
 
 ## Source
 
