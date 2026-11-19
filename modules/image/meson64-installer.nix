@@ -166,7 +166,7 @@ let
     # `plan_*` ci-dessus restent le repli quand l'image est construite sans
     # plan, et le moteur refuse de toute façon un plan dont le schéma diffère
     # du schéma baké.
-    if [ -z "${N5_PLAN:-}" ] && [ -f /etc/n5/plan.json ]; then
+    if [ -z "''${N5_PLAN:-}" ] && [ -f /etc/n5/plan.json ]; then
       N5_PLAN=/etc/n5/plan.json
       export N5_PLAN
     fi
