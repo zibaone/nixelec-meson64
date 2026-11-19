@@ -159,6 +159,18 @@ let
     baked_scheme="${n5TargetBootloader}"
     uboot_script="${ubootScript}"
 
+    # ---- plan reçu de l'assemblage (HavenOS), sinon plan baké --------------
+    # Le plan vit désormais dans la configuration de l'unité
+    # (`havenos.installPlan`, HavenOS `modules/hardware/families/meson64/
+    # install-plan.nix`) : l'étage 2 n'a plus à être « meson64 ». Les variables
+    # `plan_*` ci-dessus restent le repli quand l'image est construite sans
+    # plan, et le moteur refuse de toute façon un plan dont le schéma diffère
+    # du schéma baké.
+    if [ -z "${N5_PLAN:-}" ] && [ -f /etc/n5/plan.json ]; then
+      N5_PLAN=/etc/n5/plan.json
+      export N5_PLAN
+    fi
+
     # ---- provider de plateforme, puis moteur -------------------------------
     ${provider}
     ${engine}
