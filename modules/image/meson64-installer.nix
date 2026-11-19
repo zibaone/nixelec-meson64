@@ -96,7 +96,7 @@ in
   environment.etc."n5/install.sh".source = installScript;
   # Remplacement du seul BL33, sans reformater : utilisable sur une carte déjà
   # installée (essai d'un chargeur, retour arrière).
-  environment.etc."n5/uboot-install.sh".source = ubootScript;
+  environment.etc."n5/uboot-install.sh".source = "${ubootScript}/bin/n5-uboot";
 
   services.getty.autologinUser = lib.mkForce "root";
   systemd.services."serial-getty@ttyAML0".enable = true;
