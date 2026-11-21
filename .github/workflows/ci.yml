@@ -27,6 +27,12 @@ jobs:
   # ce job tient en ~1 h et suffit à ce qu'un build local du toplevel
   # substitue le noyau au lieu de le recompiler sous binfmt.
   #
+  # Runner **x86_64**, pas ARM : la dérivation du noyau est un cross
+  # x86_64→aarch64, donc son `system` est `x86_64-linux` (`nix derivation
+  # show`). Sur un runner ARM elle est exécutée sous qemu (d'où les 6 h des
+  # jobs d'image, qui doivent en plus émuler `x86_64-linux`), alors qu'ici
+  # elle se compile nativement.
+  #
   # La publication exige les deux secrets du cache (comme HavenOS/ci.yml) :
   #   CACHIX_AUTH_TOKEN  — token « read and write » ;
   #   CACHIX_SIGNING_KEY — signature côté client (le cache refuse un narinfo
@@ -34,7 +40,7 @@ jobs:
   #                        pousse rien : le log dit « Pushing is disabled ».
   kernel:
     name: kernel magicsee-n5-sd
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
