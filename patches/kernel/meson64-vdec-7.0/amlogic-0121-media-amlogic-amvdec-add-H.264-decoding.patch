@@ -1011,7 +1011,7 @@ index 000000000000..f96e5c7dc966
 +				sr->frame_num, sr->num_ref_idx_active[0],
 +				sr->num_ref_idx_active[1], sr->n_mod[0],
 +				sr->n_mod[1]);
-+			return ret;
++			ret = 0; /* keep the built list: degrade, never abort the session */
 +		}
 +		if (sr->num_ref_idx_active[0] && n0 > sr->num_ref_idx_active[0])
 +			n0 = sr->num_ref_idx_active[0];
