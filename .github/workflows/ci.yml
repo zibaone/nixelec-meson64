@@ -21,6 +21,50 @@ concurrency:
 # déjà la porte d'évaluation.
 
 jobs:
+  # Le noyau patché seul, pour remplir le cache. Les deux jobs d'image
+  # ci-dessous dépassent le plafond GitHub de 6 h par job et sont annulés
+  # avant d'avoir rien poussé (aucun run vert depuis la création du repo) :
+  # ce job tient en ~1 h et suffit à ce qu'un build local du toplevel
+  # substitue le noyau au lieu de le recompiler sous binfmt.
+  #
+  # La publication exige les deux secrets du cache (comme HavenOS/ci.yml) :
+  #   CACHIX_AUTH_TOKEN  — token « read and write » ;
+  #   CACHIX_SIGNING_KEY — signature côté client (le cache refuse un narinfo
+  #                        non signé). Sans eux, le job construit mais ne
+  #                        pousse rien : le log dit « Pushing is disabled ».
+  kernel:
+    name: kernel magicsee-n5-sd
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: havenos
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
+
+      # Noyau + modules : la même dérivation que celle dont dérive l'image.
+      - name: nix build …config.system.build.kernel
+        run: |
+          nix build \
+            ".#nixosConfigurations.magicsee-n5-sd.config.system.build.kernel" \
+            --no-link --print-build-logs
+
+      # L'initrd entraîne les modules élagués : le pousser aussi évite de
+      # les reconstruire côté poste.
+      - name: nix build …config.system.build.initialRamdisk
+        run: |
+          nix build \
+            ".#nixosConfigurations.magicsee-n5-sd.config.system.build.initialRamdisk" \
+            --no-link --print-build-logs
+
   build:
     name: build ${{ matrix.package }}
     runs-on: ubuntu-24.04-arm
